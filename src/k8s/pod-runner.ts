@@ -1,0 +1,230 @@
+import type {ApiResult} from '@hesed/plugin-lib'
+
+/**
+ * Pod execution engine for SSH-to-Kubernetes-pod commands.
+ *
+ * This is the TypeScript counterpart of the reference skill's `pod-shell.sh`:
+ * it reaches application pods via an SSH bastion chain (local → bastion →
+ * kubectl host → `kubectl exec`), supports running on the first pod or fanning
+ * out across every running pod with labelled output, and base64-encodes the
+ * inner command so it survives both SSH hops without manual escaping.
+ *
+ * Each call here is a short-lived SSH process, so there is no connection pool
+ * to close — `closeAll()` is a no-op kept for symmetry with the auth-command
+ * `clearClients` contract.
+ */
+import {execFile} from 'node:child_process'
+
+import type {ServerConnection} from './config-loader.js'
+
+/** Default per-command timeout: 30 seconds (matches a reasonable pod round-trip). */
+export const DEFAULT_TIMEOUT_MS = 30_000
+
+/**
+ * Output of a single pod execution. For `--all` fan-out the engine returns one
+ * entry per pod; for a single-pod run it returns a single entry.
+ */
+export interface PodExecResult {
+  /** Pod name (without the `pod/` prefix) this output came from. */
+  pod: string
+  stderr: string
+  stdout: string
+}
+
+export interface ExecData {
+  result?: string
+  results?: PodExecResult[]
+}
+
+export type ExecResult = ApiResult & {data?: ExecData}
+
+/** Connection-test payload returned by {@link PodRunner.testConnection}. */
+export interface ConnectionTestData {
+  pods: string[]
+  result?: string
+}
+
+export type ConnectionTestResult = ApiResult & {data?: ConnectionTestData}
+
+/**
+ * Runs an SSH command locally. Isolated as a parameter so tests can stub it
+ * instead of making real network calls.
+ */
+export type SshRunner = (args: string[], timeoutMs: number) => Promise<{stderr: string; stdout: string}>
+
+/**
+ * Default SSH runner using Node's `child_process.execFile`. Commands run
+ * non-interactively (no `-it`) so output can be captured.
+ */
+export const defaultSshRunner: SshRunner = (args, timeoutMs) =>
+  new Promise((resolve, reject) => {
+    execFile('ssh', args, {maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs}, (error, stdout, stderr) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      resolve({stderr, stdout})
+    })
+  })
+
+/**
+ * Build the remote `kubectl exec` invocation for a single pod.
+ *
+ * The inner command is base64-encoded and decoded on the remote host so any
+ * quoting, single quotes, or `$` variables in it survive both SSH hops
+ * untouched — the same technique the original bash script used.
+ */
+export function buildPodExecArgs(conn: ServerConnection, pod: string, command: string): string[] {
+  const encoded = Buffer.from(command).toString('base64')
+  // `$(` and `$CMD` are not `${}` interpolations, so they stay literal here —
+  // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
+  const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
+  // ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
+  //
+  // The single quotes are load-bearing: ssh joins every arg after the first
+  // hop's `--` with spaces and hands the result to the bastion's own login
+  // shell. Without quoting, that shell — not the k8s host — evaluates the
+  // `$(...)`, `|`, and `;` in remoteCommand before the second `ssh` ever
+  // sees it, so `sudo kubectl exec` silently runs against the bastion
+  // instead of the pod. Quoting keeps remoteCommand a single opaque token
+  // until it reaches the k8s host's shell.
+  return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+}
+
+/** Build the remote `kubectl get pod` invocation used to discover pods. */
+export function buildListPodsArgs(conn: ServerConnection): string[] {
+  // --field-selector=status.phase=Running restricts to running pods; -o=name
+  // yields `pod/<name>` lines, which we strip below.
+  const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -l component=${conn.component} -l role=${conn.role} -o=name --field-selector=status.phase=Running`
+  // Quoted for the same reason as buildPodExecArgs, above — this command
+  // happens to contain no shell metacharacters today, but relying on that
+  // is fragile, so it gets the same protection.
+  return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+}
+
+/** Parse `kubectl get pod -o=name` output into bare pod names. */
+export function parsePodNames(stdout: string): string[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^pod\//, ''))
+}
+
+export class PodRunner {
+  private sshRunner: SshRunner
+  private timeoutMs: number
+
+  constructor(options?: {sshRunner?: SshRunner; timeoutMs?: number}) {
+    this.sshRunner = options?.sshRunner ?? defaultSshRunner
+    this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  }
+
+  /** No-op; SSH calls are stateless. Provided for the `clearClients` contract. */
+  async closeAll(): Promise<void> {}
+
+  /**
+   * Execute a command in the first running pod.
+   *
+   * Returns a formatted human-readable `result` plus the raw per-pod entry in
+   * `results` for machine consumers.
+   */
+  async exec(conn: ServerConnection, command: string): Promise<ExecResult> {
+    try {
+      const [pod] = await this.listPods(conn)
+      const {stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
+      const entry: PodExecResult = {pod, stderr, stdout}
+      return {
+        data: {
+          result: stdout,
+          results: [entry],
+        },
+        success: true,
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        error: `ERROR: ${errorMessage}`,
+        success: false,
+      }
+    }
+  }
+
+  /**
+   * Execute a command in every running pod, labelling each output block with
+   * `===== <pod> =====` — matching the skill's `--all` behaviour. Essential for
+   * log scanning, since requests are load-balanced across pods.
+   */
+  async execAll(conn: ServerConnection, command: string): Promise<ExecResult> {
+    try {
+      const pods = await this.listPods(conn)
+      const entries: PodExecResult[] = []
+
+      for (const pod of pods) {
+        // Run pods sequentially to keep labelled blocks ordered and readable.
+        // eslint-disable-next-line no-await-in-loop -- intentional: ordered output
+        const {stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
+        entries.push({pod, stderr, stdout})
+      }
+
+      const formatted = entries
+        .map((entry) => `===== ${entry.pod} =====\n${entry.stdout}${entry.stderr ? `\n${entry.stderr}` : ''}`)
+        .join('\n\n')
+
+      return {
+        data: {
+          result: formatted,
+          results: entries,
+        },
+        success: true,
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        error: `ERROR: ${errorMessage}`,
+        success: false,
+      }
+    }
+  }
+
+  /**
+   * List running pods matching the connection's selector.
+   *
+   * @throws if the SSH/kubectl invocation fails or returns no pods.
+   */
+  async listPods(conn: ServerConnection): Promise<string[]> {
+    const {stdout} = await this.sshRunner(buildListPodsArgs(conn), this.timeoutMs)
+    const pods = parsePodNames(stdout)
+    if (pods.length === 0) {
+      throw new Error(
+        `No running pods found for namespace=${conn.namespace} component=${conn.component} role=${conn.role}.`,
+      )
+    }
+
+    return pods
+  }
+
+  /**
+   * Smoke-test a server profile: list its running pods. Used by `ssh servers
+   * test` to validate the SSH chain and credentials without running a command.
+   */
+  async testConnection(conn: ServerConnection): Promise<ConnectionTestResult> {
+    try {
+      const pods = await this.listPods(conn)
+      return {
+        data: {
+          pods,
+          result: `Connection successful!\n\nProfile: ${conn.profileName}\nBastion: ${conn.bastionHost}\nSSH host: ${conn.sshHost}\nNamespace: ${conn.namespace}\nRunning pods (${pods.length}):\n${pods.map((p) => `  • ${p}`).join('\n')}`,
+        },
+        success: true,
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        error: `ERROR: ${errorMessage}`,
+        success: false,
+      }
+    }
+  }
+}
