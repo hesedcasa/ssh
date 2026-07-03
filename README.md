@@ -72,7 +72,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.1.0 darwin-arm64 node-v22.22.3
+@hesed/ssh/0.1.0 linux-x64 node-v22.23.1
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
