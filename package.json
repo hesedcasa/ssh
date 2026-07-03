@@ -19,7 +19,7 @@
     "@types/chai": "^5",
     "@types/fs-extra": "^11.0.4",
     "@types/mocha": "^10",
-    "@types/node": "^25",
+    "@types/node": "^26",
     "@types/sinon": "^21.0.0",
     "c8": "^11.0.0",
     "chai": "^6",
