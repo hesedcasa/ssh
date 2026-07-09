@@ -42,7 +42,9 @@ export default class SshTinker extends BaseCommand {
     // The PHP is wrapped as `tinker --execute="..."` and base64-encoded by the
     // runner, so the user passes raw PHP (e.g. `User::count()`) with no `\$`
     // or `\"` escaping — a deliberate UX improvement over the original skill.
-    const result = await runTinker(this.config, args.php, flags.profile, overrides, flags.all)
+    const result = await this.withSpinner('Running tinker command', () =>
+      runTinker(this.config, args.php, flags.profile, overrides, flags.all),
+    )
     await closeConnections()
 
     if (result.success) {

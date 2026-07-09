@@ -46,7 +46,9 @@ export default class SshArtisan extends BaseCommand {
       namespace: flags.namespace,
       role: flags.role,
     }
-    const result = await runArtisan(this.config, args.command, flags.profile, overrides, flags.all)
+    const result = await this.withSpinner('Running artisan command', () =>
+      runArtisan(this.config, args.command, flags.profile, overrides, flags.all),
+    )
     await closeConnections()
 
     if (result.success) {
