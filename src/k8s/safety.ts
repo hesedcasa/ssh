@@ -82,21 +82,37 @@ const FILE_DELETION_BINARIES = new Set(['rm', 'rmdir', 'shred', 'srm', 'unlink']
 /**
  * Wrappers that execute the token that follows them, so `sudo rm`,
  * `xargs rm`, or `env FOO=1 rm` resolve to `rm` rather than the wrapper.
+ * Shell interpreters and shell keywords are treated the same way: in
+ * `bash -c 'rm …'` or `do rm "$f"` the effective command is the `rm`
+ * that follows, not `bash`/`do`.
  */
 const COMMAND_WRAPPERS = new Set([
+  'ash',
+  'bash',
   'builtin',
   'command',
+  'dash',
+  'do',
   'doas',
+  'elif',
+  'else',
   'env',
   'exec',
+  'if',
   'ionice',
+  'ksh',
   'nice',
   'nohup',
+  'sh',
   'stdbuf',
   'sudo',
+  'then',
   'time',
   'timeout',
+  'until',
+  'while',
   'xargs',
+  'zsh',
 ])
 
 /**
@@ -106,8 +122,14 @@ const COMMAND_WRAPPERS = new Set([
  */
 const DESTRUCTIVE_ARTISAN_PREFIXES = ['db:wipe', 'migrate:fresh', 'migrate:refresh', 'migrate:reset', 'migrate:rollback']
 
-/** SQL that removes a database, schema, or table — in any quoting or case. */
-const SQL_DROP_PATTERN = /\bdrop\s+(?:database|schema|table)\b/i
+/**
+ * SQL that removes a database object — in any quoting or case. Covers the
+ * whole destructive DDL family (database, schema, table, view, index,
+ * function, …), including modifiers like `DROP TEMPORARY TABLE` and
+ * `DROP MATERIALIZED VIEW`.
+ */
+const SQL_DROP_PATTERN =
+  /\bdrop\s+(?:temporary\s+|materialized\s+)?(?:database|schema|table|view|index|function|procedure|trigger|sequence|event|user|role)\b/i
 
 /** PHP snippets tinker must never run: file deletion, DB drops, shell escapes. */
 const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: string}> = [
@@ -167,17 +189,22 @@ function matchDestructiveArtisanPrefix(subcommand: string): string | undefined {
 
 /**
  * Permission check for `ssh exec`: refuse bash commands that delete files or
- * folders, or drop a database. The command is split on shell separators
- * (`;`, `&&`, `|`, `$(…)`, backticks, newlines) so a deletion hidden behind a
- * harmless first command (`ls && rm -rf storage`) is still caught.
+ * folders, or drop a database. The command is split on shell separators and
+ * grouping syntax (`;`, `&&`, `|`, `$(…)`, `(…)`, `{…}`, backticks, newlines)
+ * so a deletion hidden behind a harmless first command (`ls && rm -rf
+ * storage`), inside a loop or group, or behind a nested shell
+ * (`bash -c 'rm …'`) is still caught.
  */
 export function checkShellDeletionPermission(command: string): PermissionCheckResult {
   const sqlDrop = command.match(SQL_DROP_PATTERN)
   if (sqlDrop) {
-    return deny(sqlDrop[0], 'SQL that drops a database, schema, or table')
+    return deny(sqlDrop[0], 'SQL that drops a database object')
   }
 
-  for (const segment of command.split(/[\n;&|]|\$\(|`/)) {
+  // Split on separators AND grouping syntax — `(`, `)`, `{`, `}` — so a
+  // deletion inside a subshell, brace group, or `$(…)` starts its own
+  // segment (`( rm -rf storage )`, `{ rm foo; }`, `echo $(rm foo)`).
+  for (const segment of command.split(/[\n;&|(){}]|`/)) {
     const word = resolveCommandWord(segment)
     if (!word) {
       continue

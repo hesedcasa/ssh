@@ -114,6 +114,20 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('/bin/rm foo').allowed).to.be.false
     })
 
+    it('blocks deletion behind nested shell interpreters', () => {
+      expect(checkShellDeletionPermission("bash -c 'rm -rf storage'").allowed).to.be.false
+      expect(checkShellDeletionPermission('sh -c "rm foo"').allowed).to.be.false
+      expect(checkShellDeletionPermission("sudo bash -c 'rm -rf /var/www'").allowed).to.be.false
+    })
+
+    it('blocks deletion inside loops, brace groups, and subshells', () => {
+      expect(checkShellDeletionPermission('for f in storage/*.log; do rm "$f"; done').allowed).to.be.false
+      expect(checkShellDeletionPermission('while true; do rm foo; done').allowed).to.be.false
+      expect(checkShellDeletionPermission('if true; then rm foo; fi').allowed).to.be.false
+      expect(checkShellDeletionPermission('{ rm -rf storage; }').allowed).to.be.false
+      expect(checkShellDeletionPermission('( rm -rf storage )').allowed).to.be.false
+    })
+
     it('blocks find -delete and find -exec rm', () => {
       expect(checkShellDeletionPermission('find storage -name "*.tmp" -delete').allowed).to.be.false
       expect(checkShellDeletionPermission(String.raw`find . -name "*.log" -exec rm {} \;`).allowed).to.be.false
@@ -124,6 +138,16 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission("psql -c 'drop schema public cascade'").allowed).to.be.false
       expect(checkShellDeletionPermission('mysql -e "Drop Table users"').allowed).to.be.false
       expect(checkShellDeletionPermission('mysqladmin drop app').allowed).to.be.false
+    })
+
+    it('blocks drops of other database objects (view, index, function, …)', () => {
+      expect(checkShellDeletionPermission("psql -c 'DROP VIEW user_data'").allowed).to.be.false
+      expect(checkShellDeletionPermission('mysql -e "drop index idx_users_email on users"').allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP FUNCTION compute_totals()'").allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP MATERIALIZED VIEW report_cache'").allowed).to.be.false
+      expect(checkShellDeletionPermission('mysql -e "DROP TEMPORARY TABLE tmp_import"').allowed).to.be.false
+      expect(checkShellDeletionPermission('mysql -e "DROP TABLE IF EXISTS users"').allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP TRIGGER audit_trigger ON users'").allowed).to.be.false
     })
 
     it('blocks destructive artisan subcommands smuggled through exec', () => {
