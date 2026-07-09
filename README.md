@@ -72,7 +72,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.1.0 darwin-arm64 node-v22.22.3
+@hesed/ssh/0.1.0 linux-x64 node-v22.23.1
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -173,18 +173,18 @@ Add SSH Server authentication
 
 ```
 USAGE
-  $ ssh ssh servers add [--json] [-p <value>] [--bastionHost <value>] [--sshHost <value>] [-u <value>] [-n <value>]
-    [--component <value>] [--role <value>] [--container <value>]
+  $ ssh ssh servers add -p <value> --bastionHost <value> --sshHost <value> -u <value> -n <value> --component <value>
+    --role <value> --container <value> [--json]
 
 FLAGS
-  -n, --namespace=<value>    Kubernetes namespace
-  -p, --profile=<value>      Profile name
-  -u, --sshUser=<value>      SSH username for both hops
-      --bastionHost=<value>  Bastion / jump host (first SSH hop)
-      --component=<value>    Pod component label
-      --container=<value>    Container name within the pod
-      --role=<value>         Pod role label
-      --sshHost=<value>      Kubernetes host (second SSH hop, runs kubectl)
+  -n, --namespace=<value>    (required) Kubernetes namespace
+  -p, --profile=<value>      (required) Profile name
+  -u, --sshUser=<value>      (required) SSH username for both hops
+      --bastionHost=<value>  (required) Bastion / jump host (first SSH hop)
+      --component=<value>    (required) Pod component label
+      --container=<value>    (required) Container name within the pod
+      --role=<value>         (required) Pod role label
+      --sshHost=<value>      (required) Kubernetes host (second SSH hop, runs kubectl)
 
 GLOBAL FLAGS
   --json  Format output as json.
@@ -335,18 +335,18 @@ Update SSH Server authentication
 
 ```
 USAGE
-  $ ssh ssh servers update [--json] [-p <value>] [--bastionHost <value>] [--sshHost <value>] [-u <value>] [-n <value>]
-    [--component <value>] [--role <value>] [--container <value>]
+  $ ssh ssh servers update -p <value> --bastionHost <value> --sshHost <value> -u <value> -n <value> --component <value>
+    --role <value> --container <value> [--json]
 
 FLAGS
-  -n, --namespace=<value>    Kubernetes namespace
-  -p, --profile=<value>      Profile name
-  -u, --sshUser=<value>      SSH username for both hops
-      --bastionHost=<value>  Bastion / jump host (first SSH hop)
-      --component=<value>    Pod component label
-      --container=<value>    Container name within the pod
-      --role=<value>         Pod role label
-      --sshHost=<value>      Kubernetes host (second SSH hop, runs kubectl)
+  -n, --namespace=<value>    (required) Kubernetes namespace
+  -p, --profile=<value>      (required) Profile name
+  -u, --sshUser=<value>      (required) SSH username for both hops
+      --bastionHost=<value>  (required) Bastion / jump host (first SSH hop)
+      --component=<value>    (required) Pod component label
+      --container=<value>    (required) Container name within the pod
+      --role=<value>         (required) Pod role label
+      --sshHost=<value>      (required) Kubernetes host (second SSH hop, runs kubectl)
 
 GLOBAL FLAGS
   --json  Format output as json.
