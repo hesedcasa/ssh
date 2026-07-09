@@ -74,6 +74,31 @@ describe('ssh:exec', () => {
     expect(closeConnectionsStub.calledOnce).to.be.true
   })
 
+  it('blocks file-deletion commands before reaching the engine (built-in deletion guard)', async () => {
+    const cmd = makeCmd(['rm -rf storage'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    expect(execInPodStub.called).to.be.false
+    expect(execInAllPodsStub.called).to.be.false
+  })
+
+  it('blocks database-drop commands before reaching the engine (built-in deletion guard)', async () => {
+    const cmd = makeCmd(['mysql -e "DROP DATABASE app"'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    expect(execInPodStub.called).to.be.false
+  })
+
   it('errors when the engine reports failure', async () => {
     execInPodStub.resolves({error: 'ERROR: boom', success: false})
     const cmd = makeCmd(['pwd'])

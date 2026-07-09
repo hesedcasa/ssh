@@ -3,7 +3,7 @@ import type {ApiResult} from '@hesed/plugin-lib'
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
-import {closeConnections, runTinker} from '../../k8s/index.js'
+import {checkTinkerDeletionPermission, closeConnections, runTinker} from '../../k8s/index.js'
 import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshTinker extends BaseCommand {
@@ -32,6 +32,12 @@ export default class SshTinker extends BaseCommand {
 
   public async run(): Promise<ApiResult> {
     const {args, flags} = await this.parse(SshTinker)
+
+    // Built-in deletion guard: always on, cannot be disabled by config.
+    const permission = checkTinkerDeletionPermission(args.php)
+    if (!permission.allowed) {
+      this.error(`${permission.reason ?? 'Command blocked by the deletion guard.'}\n\nThis operation cannot be executed.`)
+    }
 
     const overrides = {
       component: flags.component,

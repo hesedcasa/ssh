@@ -17,6 +17,14 @@ interface BlacklistCheckResult {
   reason?: string
 }
 
+/** Result of a built-in deletion-permission check. */
+export interface PermissionCheckResult {
+  allowed: boolean
+  /** The command, token, or pattern that triggered the block. */
+  matchedPattern?: string
+  reason?: string
+}
+
 /**
  * Normalize a command for matching: trimmed, collapsed internal whitespace,
  * lower-cased. We compare case-insensitively so `MIGRATE` and `migrate` are
@@ -33,6 +41,212 @@ function normalize(cmd: string): string {
  *                     e.g. `migrate:status` or `cache:clear`.
  * @param blacklisted  subcommand prefixes to block, e.g. `['migrate', ...]`.
  */
+/*
+ * ---------------------------------------------------------------------------
+ * Built-in deletion guard (AI permission layer)
+ * ---------------------------------------------------------------------------
+ *
+ * This plugin is designed to be driven by AI agents, so — unlike the
+ * per-profile artisan blacklist above, which is opt-in and editable via
+ * `ssh servers safety` — the checks below are hard-coded and always on.
+ * No flag, profile setting, or config edit can disable them.
+ *
+ * They refuse, before anything reaches a pod, any command that would:
+ *   • delete a file or folder (`rm`, `rmdir`, `unlink`, `shred`,
+ *     `find -delete`, PHP `unlink()`, `File::delete*`, `Storage::delete*`, …)
+ *   • drop or wipe a database (`DROP DATABASE/SCHEMA/TABLE`,
+ *     `mysqladmin drop`, `db:wipe`, `migrate:fresh/refresh/reset/rollback`,
+ *     `Schema::drop*`, …)
+ *
+ * Matching is deliberately conservative: a false positive costs a human a
+ * manual run outside this tool, a false negative costs data.
+ */
+
+const DELETION_GUARD_NOTICE =
+  'This tool does not permit AI-driven deletion of files, folders, or databases. ' +
+  'If this operation is genuinely required, a human must run it manually outside this tool.'
+
+const ALLOWED: PermissionCheckResult = {allowed: true}
+
+function deny(matchedPattern: string, what: string): PermissionCheckResult {
+  return {
+    allowed: false,
+    matchedPattern,
+    reason: `${what} ("${matchedPattern}") is blocked by the built-in deletion guard. ${DELETION_GUARD_NOTICE}`,
+  }
+}
+
+/** Binaries whose purpose is deleting files or directories. */
+const FILE_DELETION_BINARIES = new Set(['rm', 'rmdir', 'shred', 'srm', 'unlink'])
+
+/**
+ * Wrappers that execute the token that follows them, so `sudo rm`,
+ * `xargs rm`, or `env FOO=1 rm` resolve to `rm` rather than the wrapper.
+ */
+const COMMAND_WRAPPERS = new Set([
+  'builtin',
+  'command',
+  'doas',
+  'env',
+  'exec',
+  'ionice',
+  'nice',
+  'nohup',
+  'stdbuf',
+  'sudo',
+  'time',
+  'timeout',
+  'xargs',
+])
+
+/**
+ * Artisan subcommand prefixes that drop tables or wipe the database. These
+ * are irreversible without a backup, so the guard treats them all as
+ * database deletion.
+ */
+const DESTRUCTIVE_ARTISAN_PREFIXES = ['db:wipe', 'migrate:fresh', 'migrate:refresh', 'migrate:reset', 'migrate:rollback']
+
+/** SQL that removes a database, schema, or table — in any quoting or case. */
+const SQL_DROP_PATTERN = /\bdrop\s+(?:database|schema|table)\b/i
+
+/** PHP snippets tinker must never run: file deletion, DB drops, shell escapes. */
+const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: string}> = [
+  {label: 'unlink()', pattern: /\bunlink\s*\(/i, what: 'PHP file deletion'},
+  {label: 'rmdir()', pattern: /\brmdir\s*\(/i, what: 'PHP directory deletion'},
+  {
+    label: 'File::delete*/cleanDirectory',
+    pattern: /\bFile::(?:delete\w*|cleanDirectory)\s*\(/i,
+    what: 'Filesystem facade deletion',
+  },
+  {
+    label: 'Storage::delete*',
+    pattern: /\bStorage::(?:disk\s*\([^)]*\)\s*->\s*)?delete\w*\s*\(/i,
+    what: 'Storage facade deletion',
+  },
+  {label: 'Schema::drop*', pattern: /\bSchema::drop\w*\s*\(/i, what: 'Schema drop'},
+  {
+    label: 'exec()/shell_exec()/system()/…',
+    pattern: /\b(?:exec|shell_exec|system|passthru|proc_open|popen|pcntl_exec)\s*\(/i,
+    what: 'Shell execution from tinker (could delete files)',
+  },
+  {label: '`…` (shell-exec operator)', pattern: /`[^`]*`/, what: 'Shell execution from tinker (could delete files)'},
+]
+
+/**
+ * Resolve the effective command word of one shell segment: skip leading
+ * `VAR=value` assignments, option flags, and command wrappers (`sudo`,
+ * `xargs`, …), then strip any path prefix so `/bin/rm` matches `rm`.
+ */
+function resolveCommandWord(segment: string): string | undefined {
+  for (const rawToken of segment.trim().split(/\s+/)) {
+    // Strip wrapping quotes so `'rm'` still resolves to rm.
+    const token = rawToken.replaceAll(/^["']+|["']+$/g, '')
+    if (token.length === 0 || token.startsWith('-') || /^\w+=/.test(token)) {
+      continue
+    }
+
+    const bare = (token.split('/').pop() ?? token).toLowerCase()
+    if (COMMAND_WRAPPERS.has(bare)) {
+      continue
+    }
+
+    return bare
+  }
+
+  return undefined
+}
+
+/** Match an artisan subcommand against the built-in destructive prefixes. */
+function matchDestructiveArtisanPrefix(subcommand: string): string | undefined {
+  const normalized = normalize(subcommand)
+  return DESTRUCTIVE_ARTISAN_PREFIXES.find(
+    (entry) =>
+      normalized === entry || normalized.startsWith(`${entry} `) || normalized.startsWith(`${entry}:`),
+  )
+}
+
+/**
+ * Permission check for `ssh exec`: refuse bash commands that delete files or
+ * folders, or drop a database. The command is split on shell separators
+ * (`;`, `&&`, `|`, `$(…)`, backticks, newlines) so a deletion hidden behind a
+ * harmless first command (`ls && rm -rf storage`) is still caught.
+ */
+export function checkShellDeletionPermission(command: string): PermissionCheckResult {
+  const sqlDrop = command.match(SQL_DROP_PATTERN)
+  if (sqlDrop) {
+    return deny(sqlDrop[0], 'SQL that drops a database, schema, or table')
+  }
+
+  for (const segment of command.split(/[\n;&|]|\$\(|`/)) {
+    const word = resolveCommandWord(segment)
+    if (!word) {
+      continue
+    }
+
+    if (FILE_DELETION_BINARIES.has(word)) {
+      return deny(word, 'File/folder deletion command')
+    }
+
+    if (word === 'find') {
+      if (/\s-delete\b/.test(segment)) {
+        return deny('find -delete', 'File/folder deletion command')
+      }
+
+      // `find … -exec rm {} \;` — the deletion binary hides behind -exec.
+      if (/\s-exec(?:dir)?\s+(?:\S*\/)?(?:rm|rmdir|shred|srm|unlink)\b/.test(segment)) {
+        return deny('find -exec rm', 'File/folder deletion command')
+      }
+    }
+
+    if (word === 'mysqladmin' && /\bdrop\b/i.test(segment)) {
+      return deny('mysqladmin drop', 'Database deletion command')
+    }
+
+    // Catch destructive artisan subcommands smuggled through `ssh exec`
+    // (e.g. `php artisan migrate:fresh`).
+    const artisanArg = segment.match(/\bartisan\s+(.+)/i)
+    if (artisanArg) {
+      const prefix = matchDestructiveArtisanPrefix(artisanArg[1])
+      if (prefix) {
+        return deny(prefix, 'Artisan command that deletes database structures')
+      }
+    }
+  }
+
+  return ALLOWED
+}
+
+/**
+ * Permission check for `ssh artisan`: refuse subcommands that drop or wipe
+ * database structures. The artisan argument ultimately runs inside a remote
+ * `bash -c`, so it is also scanned for smuggled shell deletions
+ * (e.g. `cache:clear; rm -rf storage`).
+ */
+export function checkArtisanDeletionPermission(subcommand: string): PermissionCheckResult {
+  const prefix = matchDestructiveArtisanPrefix(subcommand)
+  if (prefix) {
+    return deny(prefix, 'Artisan command that deletes database structures')
+  }
+
+  return checkShellDeletionPermission(subcommand)
+}
+
+/**
+ * Permission check for `ssh tinker`: refuse PHP that deletes files or
+ * folders, drops database structures, or escapes to a shell. The PHP is
+ * embedded in a remote `bash -c` string, so it is also scanned for shell
+ * deletions in case of quote break-out.
+ */
+export function checkTinkerDeletionPermission(php: string): PermissionCheckResult {
+  for (const {label, pattern, what} of TINKER_DELETION_PATTERNS) {
+    if (pattern.test(php)) {
+      return deny(label, what)
+    }
+  }
+
+  return checkShellDeletionPermission(php)
+}
+
 export function checkArtisanBlacklist(command: string, blacklisted: string[]): BlacklistCheckResult {
   const normalizedCommand = normalize(command)
 

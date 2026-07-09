@@ -3,7 +3,13 @@ import type {ApiResult} from '@hesed/plugin-lib'
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
-import {checkArtisanBlacklist, closeConnections, getArtisanBlacklist, runArtisan} from '../../k8s/index.js'
+import {
+  checkArtisanBlacklist,
+  checkArtisanDeletionPermission,
+  closeConnections,
+  getArtisanBlacklist,
+  runArtisan,
+} from '../../k8s/index.js'
 import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshArtisan extends BaseCommand {
@@ -32,6 +38,12 @@ export default class SshArtisan extends BaseCommand {
 
   public async run(): Promise<ApiResult> {
     const {args, flags} = await this.parse(SshArtisan)
+
+    // Built-in deletion guard: always on, cannot be disabled by config.
+    const permission = checkArtisanDeletionPermission(args.command)
+    if (!permission.allowed) {
+      this.error(`${permission.reason ?? 'Command blocked by the deletion guard.'}\n\nThis operation cannot be executed.`)
+    }
 
     // Safety guard: block destructive migration commands before they reach a pod.
     const blacklist = await getArtisanBlacklist(this.config, flags.profile)

@@ -199,4 +199,9 @@ export async function closeConnections(): Promise<void> {
   }
 }
 
-export {checkArtisanBlacklist} from './safety.js'
+export {
+  checkArtisanBlacklist,
+  checkArtisanDeletionPermission,
+  checkShellDeletionPermission,
+  checkTinkerDeletionPermission,
+} from './safety.js'

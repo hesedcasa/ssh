@@ -64,6 +64,30 @@ describe('ssh:tinker', () => {
     expect(runTinkerStub.firstCall.args[4]).to.be.true
   })
 
+  it('blocks file-deletion PHP before reaching the runner (built-in deletion guard)', async () => {
+    const cmd = makeCmd(["Storage::deleteDirectory('uploads')"])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    expect(runTinkerStub.called).to.be.false
+  })
+
+  it('blocks database-dropping PHP before reaching the runner (built-in deletion guard)', async () => {
+    const cmd = makeCmd(['Schema::dropAllTables()'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    expect(runTinkerStub.called).to.be.false
+  })
+
   it('errors when the runner fails', async () => {
     runTinkerStub.resolves({error: 'ERROR: class not found', success: false})
     const cmd = makeCmd(['Foo::bar()'])

@@ -3,7 +3,7 @@ import type {ApiResult} from '@hesed/plugin-lib'
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
-import {closeConnections, execInAllPods, execInPod} from '../../k8s/index.js'
+import {checkShellDeletionPermission, closeConnections, execInAllPods, execInPod} from '../../k8s/index.js'
 import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshExec extends BaseCommand {
@@ -32,6 +32,12 @@ export default class SshExec extends BaseCommand {
 
   public async run(): Promise<ApiResult> {
     const {args, flags} = await this.parse(SshExec)
+
+    // Built-in deletion guard: always on, cannot be disabled by config.
+    const permission = checkShellDeletionPermission(args.command)
+    if (!permission.allowed) {
+      this.error(`${permission.reason ?? 'Command blocked by the deletion guard.'}\n\nThis operation cannot be executed.`)
+    }
 
     const overrides = {
       component: flags.component,

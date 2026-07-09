@@ -96,6 +96,34 @@ describe('ssh:artisan', () => {
     expect(runArtisanStub.called).to.be.false
   })
 
+  it('blocks db:wipe via the built-in deletion guard, even with an empty blacklist', async () => {
+    getArtisanBlacklistStub.resolves([])
+    const cmd = makeCmd(['db:wipe'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    // The guard fires before the blacklist is even read.
+    expect(getArtisanBlacklistStub.called).to.be.false
+    expect(runArtisanStub.called).to.be.false
+  })
+
+  it('blocks migrate:fresh via the built-in deletion guard regardless of profile config', async () => {
+    getArtisanBlacklistStub.resolves([])
+    const cmd = makeCmd(['migrate:fresh'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/deletion guard/i)
+    }
+
+    expect(runArtisanStub.called).to.be.false
+  })
+
   it('errors when the runner reports failure', async () => {
     runArtisanStub.resolves({error: 'ERROR: pod not found', success: false})
     const cmd = makeCmd(['cache:clear'])

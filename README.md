@@ -52,6 +52,18 @@ ssh ssh artisan -- queue:work --timeout=60
 ssh ssh tinker "App\\Models\\User::count()" -p prod
 ```
 
+> **Built-in deletion guard (AI permission layer):** this plugin is designed
+> to be driven by AI agents, so `ssh exec`, `ssh artisan`, and `ssh tinker`
+> all run every command through a hard-coded, always-on permission check
+> before anything reaches a pod. Commands that delete files or folders
+> (`rm`, `rmdir`, `unlink`, `shred`, `find -delete`, PHP `unlink()`,
+> `File::delete*`, `Storage::delete*`, …) or drop/wipe a database
+> (`DROP DATABASE/SCHEMA/TABLE`, `mysqladmin drop`, `db:wipe`,
+> `migrate:fresh/refresh/reset/rollback`, `Schema::drop*`, shell escapes from
+> tinker, …) are refused. No flag, profile setting, or config edit can
+> disable this guard — if such an operation is genuinely required, a human
+> must run it manually outside this tool.
+
 > **Migration safety:** `ssh artisan` blocks nothing by default — each
 > profile has its own opt-in artisan blacklist (empty until you configure
 > it). Migrations are destructive, so lock them down per profile:
