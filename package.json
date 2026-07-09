@@ -1,7 +1,7 @@
 {
   "name": "@hesed/ssh",
   "description": "CLI for SSH access to Kubernetes pods",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Hesed",
   "bin": {
     "ssh": "./bin/run.js"
