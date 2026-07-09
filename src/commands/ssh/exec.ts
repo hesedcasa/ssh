@@ -39,9 +39,11 @@ export default class SshExec extends BaseCommand {
       namespace: flags.namespace,
       role: flags.role,
     }
-    const result = flags.all
-      ? await execInAllPods(this.config, args.command, flags.profile, overrides)
-      : await execInPod(this.config, args.command, flags.profile, overrides)
+    const result = await this.withSpinner('Running command', () =>
+      flags.all
+        ? execInAllPods(this.config, args.command, flags.profile, overrides)
+        : execInPod(this.config, args.command, flags.profile, overrides),
+    )
     await closeConnections()
 
     if (result.success) {
