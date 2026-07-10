@@ -317,14 +317,52 @@ function checkEmbeddedArtisanArg(artisanArg: string): PermissionCheckResult {
 }
 
 /**
+ * Inline simple shell variable assignments so a deletion hidden behind a
+ * variable is caught: `cmd=rm; $cmd -rf storage` becomes `cmd=rm; rm -rf
+ * storage` before scanning. Only single-token literal assignments are
+ * expanded (`VAR=value`, quotes stripped) — enough to defeat the common
+ * indirection without attempting a full shell evaluator. Repeated until no
+ * further substitution occurs so chained aliases (`a=rm; b=$a; $b …`)
+ * collapse too, with a small iteration cap as a backstop.
+ */
+function expandShellAssignments(command: string): string {
+  const assignments = new Map<string, string>()
+  for (const [, name, rawValue] of command.matchAll(/(\b\w+)=("[^"]*"|'[^']*'|\S+)/g)) {
+    assignments.set(name, rawValue.replaceAll(/["']/g, ''))
+  }
+
+  if (assignments.size === 0) {
+    return command
+  }
+
+  let expanded = command
+  for (let i = 0; i < 5; i++) {
+    // Replace `$VAR` and `${VAR}` with the assigned value.
+    const next = expanded.replaceAll(/\$\{(\w+)\}|\$(\w+)/g, (match, braced, bare) => {
+      const name = braced ?? bare
+      return assignments.has(name) ? assignments.get(name)! : match
+    })
+    if (next === expanded) {
+      break
+    }
+
+    expanded = next
+  }
+
+  return expanded
+}
+
+/**
  * Permission check for `ssh exec`: refuse bash commands that delete files or
  * folders, or drop a database. The command is split on shell separators and
  * grouping syntax (`;`, `&&`, `|`, `$(…)`, `(…)`, `{…}`, backticks, newlines)
  * so a deletion hidden behind a harmless first command (`ls && rm -rf
  * storage`), inside a loop or group, or behind a nested shell
- * (`bash -c 'rm …'`) is still caught.
+ * (`bash -c 'rm …'`) is still caught. Simple variable assignments are
+ * expanded first so `cmd=rm; $cmd …` is caught too.
  */
-export function checkShellDeletionPermission(command: string): PermissionCheckResult {
+export function checkShellDeletionPermission(rawCommand: string): PermissionCheckResult {
+  const command = expandShellAssignments(rawCommand)
   const sqlDrop = command.match(SQL_DROP_PATTERN)
   if (sqlDrop) {
     return deny(sqlDrop[0], 'SQL that drops a database object')

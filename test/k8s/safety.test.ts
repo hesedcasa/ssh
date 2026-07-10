@@ -223,6 +223,18 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('ls |& rm -rf storage').allowed).to.be.false
     })
 
+    it('blocks deletion hidden behind a shell variable', () => {
+      expect(checkShellDeletionPermission('cmd=rm; $cmd -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission(`cmd=rm; $\{cmd} -rf storage`).allowed).to.be.false
+      expect(checkShellDeletionPermission("cmd='rm'; $cmd -rf storage").allowed).to.be.false
+      // Chained aliases collapse: a=rm; b=$a; $b -rf storage.
+      expect(checkShellDeletionPermission('a=rm; b=$a; $b -rf storage').allowed).to.be.false
+      // A variable holding a DB drop binary is caught too.
+      expect(checkShellDeletionPermission('c=dropdb; $c app_db').allowed).to.be.false
+      // A variable holding a harmless command stays allowed.
+      expect(checkShellDeletionPermission('cmd=ls; $cmd -la').allowed).to.be.true
+    })
+
     it('allows ordinary read/write commands', () => {
       expect(checkShellDeletionPermission('pwd').allowed).to.be.true
       expect(checkShellDeletionPermission('tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log').allowed).to.be.true
