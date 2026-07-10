@@ -59,6 +59,10 @@ describe('k8s/pod-runner', () => {
       expect(args.filter((a) => a === 'ssh')).to.have.lengthOf(0)
       const remote = args.at(-1)!
       expect(remote).to.include('sudo kubectl -n sa-prod get pod')
+      // No literal quotes on a direct hop: the target shell parses the string
+      // first, so quotes would collapse the whole command into one word.
+      expect(remote.startsWith("'")).to.be.false
+      expect(remote.endsWith("'")).to.be.false
     })
   })
 
@@ -86,6 +90,9 @@ describe('k8s/pod-runner', () => {
       // The encoded remote command still reaches the pod via kubectl.
       const remote = args.at(-1) as string
       expect(remote).to.include('sudo kubectl -n sa-prod exec api-prod-1 -c app')
+      // No literal quotes on a direct hop (see buildListPodsArgs test above).
+      expect(remote.startsWith("'")).to.be.false
+      expect(remote.endsWith("'")).to.be.false
     })
 
     it('encodes deterministically (round-trips to the original command)', () => {

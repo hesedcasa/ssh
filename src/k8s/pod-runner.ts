@@ -81,20 +81,23 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
   // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
   const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
   // With a bastion:  ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
-  // Without one:     ssh <user>@<sshHost> -- '<remoteCommand>'
+  // Without one:     ssh <user>@<sshHost> -- <remoteCommand>
   //
-  // The single quotes are load-bearing: ssh joins every arg after the first
-  // hop's `--` with spaces and hands the result to that hop's own login
-  // shell. Without quoting, that shell — not the k8s host — evaluates the
-  // `$(...)`, `|`, and `;` in remoteCommand before the next `ssh` ever
-  // sees it, so `sudo kubectl exec` silently runs against the bastion
-  // instead of the pod. Quoting keeps remoteCommand a single opaque token
-  // until it reaches the k8s host's shell.
+  // The single quotes exist only for the bastion hop, and there they are
+  // load-bearing: the bastion's login shell parses the forwarded string, and
+  // without quoting it — not the k8s host — evaluates the `$(...)`, `|`, and
+  // `;` in remoteCommand before the nested `ssh` ever sees it, so
+  // `sudo kubectl exec` silently runs against the bastion instead of the pod.
+  //
+  // On a direct connection there is no intermediate shell to strip quotes:
+  // the target's shell is the first to parse the string, so literal quotes
+  // would survive quote-removal as a single word and bash would try to
+  // execute the whole command line as one command name ("command not found").
   if (conn.bastionHost) {
     return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
   }
 
-  return [`${conn.sshUser}@${conn.sshHost}`, '--', `'${remoteCommand}'`]
+  return [`${conn.sshUser}@${conn.sshHost}`, '--', remoteCommand]
 }
 
 /** Build the remote `kubectl get pod` invocation used to discover pods. */
@@ -102,15 +105,15 @@ export function buildListPodsArgs(conn: ServerConnection): string[] {
   // --field-selector=status.phase=Running restricts to running pods; -o=name
   // yields `pod/<name>` lines, which we strip below.
   const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -l component=${conn.component} -l role=${conn.role} -o=name --field-selector=status.phase=Running`
-  // Quoted for the same reason as buildPodExecArgs, above — this command
-  // happens to contain no shell metacharacters today, but relying on that
-  // is fragile, so it gets the same protection. See buildPodExecArgs for the
-  // bastion-vs-direct-hop branch.
+  // Quoted on the bastion hop for the same reason as buildPodExecArgs, above —
+  // this command happens to contain no shell metacharacters today, but relying
+  // on that is fragile, so it gets the same protection. See buildPodExecArgs
+  // for why the direct hop must NOT carry literal quotes.
   if (conn.bastionHost) {
     return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
   }
 
-  return [`${conn.sshUser}@${conn.sshHost}`, '--', `'${remoteCommand}'`]
+  return [`${conn.sshUser}@${conn.sshHost}`, '--', remoteCommand]
 }
 
 /** Parse `kubectl get pod -o=name` output into bare pod names. */
