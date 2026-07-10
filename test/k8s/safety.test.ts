@@ -130,6 +130,14 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission("sudo bash -c 'rm -rf /var/www'").allowed).to.be.false
     })
 
+    it('blocks deletion binaries obfuscated with quote fragments or backslashes', () => {
+      expect(checkShellDeletionPermission("rm'' -rf storage").allowed).to.be.false
+      expect(checkShellDeletionPermission("r''m -rf storage").allowed).to.be.false
+      expect(checkShellDeletionPermission('r"m" -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission(String.raw`\rm -rf storage`).allowed).to.be.false
+      expect(checkShellDeletionPermission(String.raw`r\m -rf storage`).allowed).to.be.false
+    })
+
     it('blocks deletion behind the eval builtin', () => {
       expect(checkShellDeletionPermission("bash -c 'eval rm -rf storage'").allowed).to.be.false
       expect(checkShellDeletionPermission('eval rm -rf storage').allowed).to.be.false
@@ -257,6 +265,28 @@ describe('k8s:safety', () => {
       expect(checkTinkerDeletionPermission("Artisan::call('cache:'.'clear')").allowed).to.be.false
       expect(checkTinkerDeletionPermission(String.raw`\Illuminate\Support\Facades\Artisan::call('db:wipe')`).allowed).to
         .be.false
+    })
+
+    it('blocks service-locator and console-kernel artisan access from tinker', () => {
+      expect(checkTinkerDeletionPermission('app("artisan")->call("db:wipe")').allowed).to.be.false
+      expect(checkTinkerDeletionPermission("resolve('artisan')->call('migrate:fresh')").allowed).to.be.false
+      expect(checkTinkerDeletionPermission("App::make('artisan')->call('cache:clear')").allowed).to.be.false
+      expect(
+        checkTinkerDeletionPermission(String.raw`app(\Illuminate\Contracts\Console\Kernel::class)->call('up')`)
+          .allowed,
+      ).to.be.false
+    })
+
+    it('blocks chained schema/builder drops from tinker', () => {
+      expect(checkTinkerDeletionPermission("Schema::connection('mysql')->dropAllTables()").allowed).to.be.false
+      expect(
+        checkTinkerDeletionPermission("DB::connection('mysql')->getSchemaBuilder()->dropAllTables()").allowed,
+      ).to.be.false
+    })
+
+    it('blocks destructive artisan subcommand strings from tinker regardless of invocation route', () => {
+      expect(checkTinkerDeletionPermission('$kernel->call("db:wipe")').allowed).to.be.false
+      expect(checkTinkerDeletionPermission("$runner('migrate:fresh')").allowed).to.be.false
     })
 
     it('blocks shell escapes from tinker', () => {

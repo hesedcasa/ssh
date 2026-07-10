@@ -170,6 +170,13 @@ const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: str
   },
   {label: 'Schema::drop*', pattern: /\bSchema::drop\w*\s*\(/i, what: 'Schema drop'},
   {
+    // Chained drops on any builder: Schema::connection('x')->dropAllTables(),
+    // DB::connection()->getSchemaBuilder()->dropAllTables(), …
+    label: '->drop*()',
+    pattern: /->\s*drop\w*\s*\(/i,
+    what: 'Chained schema/builder drop',
+  },
+  {
     // Blocked categorically, not just for destructive subcommands: the
     // subcommand string can be assembled at runtime ('migrate:'.'fresh'),
     // so pattern-matching it is evadable. Guarded artisan access exists
@@ -177,6 +184,27 @@ const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: str
     label: 'Artisan::call()/queue()',
     pattern: /\bArtisan::(?:call|queue)\s*\(/i,
     what: 'Artisan invocation from tinker (use `ssh artisan` instead, which is guarded)',
+  },
+  {
+    // Service-locator route to the same console service: app('artisan'),
+    // resolve('artisan'), App::make('artisan').
+    label: "app('artisan')/resolve('artisan')",
+    pattern: /\b(?:app|resolve|make)\s*\(\s*['"]artisan['"]\s*\)/i,
+    what: 'Artisan service-locator access from tinker (use `ssh artisan` instead, which is guarded)',
+  },
+  {
+    // Console kernel resolution (app(Illuminate\Contracts\Console\Kernel::class))
+    // is the other spelling of the same escape hatch.
+    label: String.raw`Console\Kernel`,
+    pattern: /console\\{1,2}kernel/i,
+    what: 'Console kernel access from tinker (use `ssh artisan` instead, which is guarded)',
+  },
+  {
+    // Destructive artisan subcommand strings anywhere in the PHP — catches
+    // invocation routes no pattern anticipates ($kernel->call('db:wipe')).
+    label: 'db:wipe/migrate:fresh/…',
+    pattern: /\b(?:db:wipe|migrate:(?:fresh|refresh|reset|rollback))\b/i,
+    what: 'Destructive artisan subcommand referenced from tinker',
   },
   {
     label: 'exec()/shell_exec()/system()/…',
@@ -203,8 +231,10 @@ function resolveCommandWords(segment: string): string[] {
   let sawWrapper = false
 
   for (const rawToken of segment.trim().split(/\s+/)) {
-    // Strip wrapping quotes so `'rm'` still resolves to rm.
-    const token = rawToken.replaceAll(/^["']+|["']+$/g, '')
+    // Remove ALL quote characters and backslashes, not just wrapping ones:
+    // the pod shell concatenates quoted fragments and drops escapes before
+    // execution, so `'rm'`, `rm''`, `r"m"`, and `\rm` all run rm.
+    const token = rawToken.replaceAll(/["'\\]/g, '')
     if (token.length === 0 || token.startsWith('-') || /^\w+=/.test(token)) {
       continue
     }
