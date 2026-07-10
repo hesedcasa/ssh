@@ -263,6 +263,33 @@ function matchDestructiveArtisanPrefix(subcommand: string): string | undefined {
   )
 }
 
+/** First tinker deletion pattern matching the given PHP, if any. */
+function matchTinkerDeletionPattern(php: string): (typeof TINKER_DELETION_PATTERNS)[number] | undefined {
+  return TINKER_DELETION_PATTERNS.find(({pattern}) => pattern.test(php))
+}
+
+/**
+ * Guard an artisan invocation found inside a larger command: destructive
+ * subcommand prefixes, plus — when the subcommand is `tinker` — the full
+ * tinker PHP pattern scan, so `php artisan tinker --execute="…"` routed
+ * through `ssh exec`/`ssh artisan` passes the same checks as `ssh tinker`.
+ */
+function checkEmbeddedArtisanArg(artisanArg: string): PermissionCheckResult {
+  const prefix = matchDestructiveArtisanPrefix(artisanArg)
+  if (prefix) {
+    return deny(prefix, 'Artisan command that deletes database structures')
+  }
+
+  if (/^tinker\b/i.test(artisanArg.trim())) {
+    const hit = matchTinkerDeletionPattern(artisanArg)
+    if (hit) {
+      return deny(hit.label, hit.what)
+    }
+  }
+
+  return ALLOWED
+}
+
 /**
  * Permission check for `ssh exec`: refuse bash commands that delete files or
  * folders, or drop a database. The command is split on shell separators and
@@ -275,6 +302,18 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
   const sqlDrop = command.match(SQL_DROP_PATTERN)
   if (sqlDrop) {
     return deny(sqlDrop[0], 'SQL that drops a database object')
+  }
+
+  // Catch artisan invocations smuggled through `ssh exec` (`php artisan
+  // migrate:fresh`, `php artisan tinker --execute="…"`). Checked on the
+  // WHOLE command, before segment splitting, because splitting on `(`
+  // would tear apart the tinker PHP patterns.
+  const artisanArg = command.match(/\bartisan\s+(.+)/is)
+  if (artisanArg) {
+    const artisanCheck = checkEmbeddedArtisanArg(artisanArg[1])
+    if (!artisanCheck.allowed) {
+      return artisanCheck
+    }
   }
 
   // Split on separators AND grouping syntax — `(`, `)`, `{`, `}` — so a
@@ -313,16 +352,6 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
     if (sqlClient && /\bdrop\b/i.test(segment)) {
       return deny(`${sqlClient} … drop`, 'Database deletion command')
     }
-
-    // Catch destructive artisan subcommands smuggled through `ssh exec`
-    // (e.g. `php artisan migrate:fresh`).
-    const artisanArg = segment.match(/\bartisan\s+(.+)/i)
-    if (artisanArg) {
-      const prefix = matchDestructiveArtisanPrefix(artisanArg[1])
-      if (prefix) {
-        return deny(prefix, 'Artisan command that deletes database structures')
-      }
-    }
   }
 
   return ALLOWED
@@ -335,9 +364,12 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
  * (e.g. `cache:clear; rm -rf storage`).
  */
 export function checkArtisanDeletionPermission(subcommand: string): PermissionCheckResult {
-  const prefix = matchDestructiveArtisanPrefix(subcommand)
-  if (prefix) {
-    return deny(prefix, 'Artisan command that deletes database structures')
+  // Destructive prefixes, plus the tinker PHP scan when the subcommand is
+  // `tinker --execute="…"` — tinker reached through artisan must pass the
+  // same checks as `ssh tinker`.
+  const artisanCheck = checkEmbeddedArtisanArg(subcommand)
+  if (!artisanCheck.allowed) {
+    return artisanCheck
   }
 
   return checkShellDeletionPermission(subcommand)

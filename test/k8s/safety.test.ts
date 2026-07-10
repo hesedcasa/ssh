@@ -192,6 +192,21 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('cd /var/www && php artisan db:wipe').allowed).to.be.false
     })
 
+    it('blocks tinker payloads smuggled through exec', () => {
+      expect(checkShellDeletionPermission(`php artisan tinker --execute="Artisan::call('cache:clear')"`).allowed).to.be
+        .false
+      expect(checkShellDeletionPermission(`php artisan tinker --execute="unlink('/var/www/.env')"`).allowed).to.be
+        .false
+      expect(checkShellDeletionPermission('php artisan tinker --execute="Schema::dropAllTables()"').allowed).to.be
+        .false
+      // Non-destructive tinker payloads through exec stay allowed.
+      expect(checkShellDeletionPermission('php artisan tinker --execute="User::count()"').allowed).to.be.true
+    })
+
+    it('blocks deletion after the |& pipe-stderr operator', () => {
+      expect(checkShellDeletionPermission('ls |& rm -rf storage').allowed).to.be.false
+    })
+
     it('allows ordinary read/write commands', () => {
       expect(checkShellDeletionPermission('pwd').allowed).to.be.true
       expect(checkShellDeletionPermission('tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log').allowed).to.be.true
@@ -224,6 +239,13 @@ describe('k8s:safety', () => {
     it('blocks shell deletions smuggled into the artisan argument', () => {
       expect(checkArtisanDeletionPermission('cache:clear; rm -rf storage').allowed).to.be.false
       expect(checkArtisanDeletionPermission('cache:clear && sudo rm foo').allowed).to.be.false
+    })
+
+    it('runs the tinker PHP scan when the artisan subcommand is tinker', () => {
+      expect(checkArtisanDeletionPermission(`tinker --execute="Artisan::call('db:wipe')"`).allowed).to.be.false
+      expect(checkArtisanDeletionPermission('tinker --execute="Schema::dropAllTables()"').allowed).to.be.false
+      expect(checkArtisanDeletionPermission(`tinker --execute="unlink('/var/www/.env')"`).allowed).to.be.false
+      expect(checkArtisanDeletionPermission('tinker --execute="User::count()"').allowed).to.be.true
     })
 
     it('allows safe artisan subcommands (including plain migrate and migrate:status)', () => {
