@@ -80,7 +80,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.2.0 darwin-arm64 node-v22.22.3
+@hesed/ssh/0.3.0 linux-x64 node-v22.23.1
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -137,7 +137,7 @@ EXAMPLES
   $ ssh ssh artisan queue:restart --namespace sa-testqa
 ```
 
-_See code: [src/commands/ssh/artisan.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/artisan.ts)_
+_See code: [src/commands/ssh/artisan.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/artisan.ts)_
 
 ## `ssh ssh exec COMMAND`
 
@@ -173,7 +173,7 @@ EXAMPLES
   $ ssh ssh exec "grep ERROR storage/logs/laravel.log" --namespace sa-testqa
 ```
 
-_See code: [src/commands/ssh/exec.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/exec.ts)_
+_See code: [src/commands/ssh/exec.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/exec.ts)_
 
 ## `ssh ssh servers add`
 
@@ -188,12 +188,11 @@ FLAGS
   -n, --namespace=<value>    (required) Kubernetes namespace
   -p, --profile=<value>      (required) Profile name
   -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  Bastion / jump host (first SSH hop, optional — omit for a direct connection to
-                             the Kubernetes host)
+      --bastionHost=<value>  (required) Bastion host
       --component=<value>    (required) Pod component label
       --container=<value>    (required) Container name within the pod
       --role=<value>         (required) Pod role label
-      --sshHost=<value>      (required) Kubernetes host (second SSH hop, runs kubectl)
+      --sshHost=<value>      (required) Kubernetes host
 
 GLOBAL FLAGS
   --json  Format output as json.
@@ -207,7 +206,7 @@ EXAMPLES
   $ ssh ssh servers add -p prod
 ```
 
-_See code: [src/commands/ssh/servers/add.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/add.ts)_
+_See code: [src/commands/ssh/servers/add.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/add.ts)_
 
 ## `ssh ssh servers delete`
 
@@ -232,7 +231,7 @@ EXAMPLES
   $ ssh ssh servers delete -p prod
 ```
 
-_See code: [src/commands/ssh/servers/delete.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/delete.ts)_
+_See code: [src/commands/ssh/servers/delete.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/delete.ts)_
 
 ## `ssh ssh servers list`
 
@@ -252,7 +251,7 @@ EXAMPLES
   $ ssh ssh servers list
 ```
 
-_See code: [src/commands/ssh/servers/list.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/list.ts)_
+_See code: [src/commands/ssh/servers/list.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/list.ts)_
 
 ## `ssh ssh servers profile`
 
@@ -277,7 +276,7 @@ EXAMPLES
   $ ssh ssh servers profile --default test
 ```
 
-_See code: [src/commands/ssh/servers/profile.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/profile.ts)_
+_See code: [src/commands/ssh/servers/profile.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/profile.ts)_
 
 ## `ssh ssh servers safety`
 
@@ -311,7 +310,7 @@ EXAMPLES
   $ ssh ssh servers safety -p prod --clear
 ```
 
-_See code: [src/commands/ssh/servers/safety.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/safety.ts)_
+_See code: [src/commands/ssh/servers/safety.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/safety.ts)_
 
 ## `ssh ssh servers test`
 
@@ -336,7 +335,7 @@ EXAMPLES
   $ ssh ssh servers test -p prod
 ```
 
-_See code: [src/commands/ssh/servers/test.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/test.ts)_
+_See code: [src/commands/ssh/servers/test.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/test.ts)_
 
 ## `ssh ssh servers update`
 
@@ -351,12 +350,11 @@ FLAGS
   -n, --namespace=<value>    (required) Kubernetes namespace
   -p, --profile=<value>      (required) Profile name
   -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  Bastion / jump host (first SSH hop, optional — omit for a direct connection to
-                             the Kubernetes host)
+      --bastionHost=<value>  (required) Bastion host
       --component=<value>    (required) Pod component label
       --container=<value>    (required) Container name within the pod
       --role=<value>         (required) Pod role label
-      --sshHost=<value>      (required) Kubernetes host (second SSH hop, runs kubectl)
+      --sshHost=<value>      (required) Kubernetes host
 
 GLOBAL FLAGS
   --json  Format output as json.
@@ -370,7 +368,7 @@ EXAMPLES
   $ ssh ssh servers update -p test
 ```
 
-_See code: [src/commands/ssh/servers/update.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/servers/update.ts)_
+_See code: [src/commands/ssh/servers/update.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/servers/update.ts)_
 
 ## `ssh ssh tinker PHP`
 
@@ -406,5 +404,5 @@ EXAMPLES
   $ ssh ssh tinker "Cache::forget('some_key')"
 ```
 
-_See code: [src/commands/ssh/tinker.ts](https://github.com/hesedcasa/ssh/blob/v0.2.0/src/commands/ssh/tinker.ts)_
+_See code: [src/commands/ssh/tinker.ts](https://github.com/hesedcasa/ssh/blob/v0.3.0/src/commands/ssh/tinker.ts)_
 <!-- commandsstop -->
