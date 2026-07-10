@@ -25,6 +25,12 @@ const conn: ServerConnection = {
   sshUser: 'allen',
 }
 
+/** A profile without a bastion: the runner SSHes straight to the k8s host. */
+const directConn: ServerConnection = {
+  ...conn,
+  bastionHost: undefined,
+}
+
 function makeRunner(stdout: string): SshRunner {
   return stub().resolves({stderr: '', stdout}) as unknown as SshRunner
 }
@@ -43,6 +49,17 @@ describe('k8s/pod-runner', () => {
       expect(remote).to.include('--field-selector=status.phase=Running')
       expect(remote).to.include('-o=name')
     })
+
+    it('SSHes directly to the kubectl host when no bastion is set', () => {
+      const args = buildListPodsArgs(directConn)
+      // First hop is the k8s host itself; no nested `ssh` jump.
+      expect(args[0]).to.equal('allen@k8s.example.com')
+      expect(args).to.not.include('bastion.example.com')
+      // Only a single `--` separates the host from the remote command.
+      expect(args.filter((a) => a === 'ssh')).to.have.lengthOf(0)
+      const remote = args.at(-1)!
+      expect(remote).to.include('sudo kubectl -n sa-prod get pod')
+    })
   })
 
   describe('buildPodExecArgs', () => {
@@ -59,6 +76,16 @@ describe('k8s/pod-runner', () => {
       const args = buildPodExecArgs(conn, 'api-prod-1', 'pwd')
       expect(args[0]).to.equal('allen@bastion.example.com')
       expect(args).to.include('k8s.example.com')
+    })
+
+    it('SSHes directly to the kubectl host when no bastion is set', () => {
+      const args = buildPodExecArgs(directConn, 'api-prod-1', 'pwd')
+      expect(args[0]).to.equal('allen@k8s.example.com')
+      expect(args).to.not.include('bastion.example.com')
+      expect(args.filter((a) => a === 'ssh')).to.have.lengthOf(0)
+      // The encoded remote command still reaches the pod via kubectl.
+      const remote = args.at(-1) as string
+      expect(remote).to.include('sudo kubectl -n sa-prod exec api-prod-1 -c app')
     })
 
     it('encodes deterministically (round-trips to the original command)', () => {
@@ -153,6 +180,16 @@ describe('k8s/pod-runner', () => {
       expect(result.data?.pods).to.deep.equal(['api-1', 'api-2'])
       expect(result.data?.result).to.contain('prod')
       expect(result.data?.result).to.contain('bastion.example.com')
+    })
+
+    it('testConnection notes the direct connection when no bastion is set', async () => {
+      sshRunner = makeRunner('pod/api-1\n') as any
+      const runner = new PodRunner({sshRunner})
+
+      const result = await runner.testConnection(directConn)
+      expect(result.success).to.be.true
+      expect(result.data?.result).to.contain('(none — direct connection)')
+      expect(result.data?.result).to.contain('k8s.example.com')
     })
 
     it('closeAll is a no-op (resolves without error)', async () => {

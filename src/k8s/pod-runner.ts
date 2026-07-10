@@ -80,16 +80,21 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
   // `$(` and `$CMD` are not `${}` interpolations, so they stay literal here —
   // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
   const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
-  // ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
+  // With a bastion:  ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
+  // Without one:     ssh <user>@<sshHost> -- '<remoteCommand>'
   //
   // The single quotes are load-bearing: ssh joins every arg after the first
-  // hop's `--` with spaces and hands the result to the bastion's own login
+  // hop's `--` with spaces and hands the result to that hop's own login
   // shell. Without quoting, that shell — not the k8s host — evaluates the
-  // `$(...)`, `|`, and `;` in remoteCommand before the second `ssh` ever
+  // `$(...)`, `|`, and `;` in remoteCommand before the next `ssh` ever
   // sees it, so `sudo kubectl exec` silently runs against the bastion
   // instead of the pod. Quoting keeps remoteCommand a single opaque token
   // until it reaches the k8s host's shell.
-  return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+  if (conn.bastionHost) {
+    return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+  }
+
+  return [`${conn.sshUser}@${conn.sshHost}`, '--', `'${remoteCommand}'`]
 }
 
 /** Build the remote `kubectl get pod` invocation used to discover pods. */
@@ -99,8 +104,13 @@ export function buildListPodsArgs(conn: ServerConnection): string[] {
   const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -l component=${conn.component} -l role=${conn.role} -o=name --field-selector=status.phase=Running`
   // Quoted for the same reason as buildPodExecArgs, above — this command
   // happens to contain no shell metacharacters today, but relying on that
-  // is fragile, so it gets the same protection.
-  return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+  // is fragile, so it gets the same protection. See buildPodExecArgs for the
+  // bastion-vs-direct-hop branch.
+  if (conn.bastionHost) {
+    return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+  }
+
+  return [`${conn.sshUser}@${conn.sshHost}`, '--', `'${remoteCommand}'`]
 }
 
 /** Parse `kubectl get pod -o=name` output into bare pod names. */
@@ -215,7 +225,7 @@ export class PodRunner {
       return {
         data: {
           pods,
-          result: `Connection successful!\n\nProfile: ${conn.profileName}\nBastion: ${conn.bastionHost}\nSSH host: ${conn.sshHost}\nNamespace: ${conn.namespace}\nRunning pods (${pods.length}):\n${pods.map((p) => `  • ${p}`).join('\n')}`,
+          result: `Connection successful!\n\nProfile: ${conn.profileName}\nBastion: ${conn.bastionHost ?? '(none — direct connection)'}\nSSH host: ${conn.sshHost}\nNamespace: ${conn.namespace}\nRunning pods (${pods.length}):\n${pods.map((p) => `  • ${p}`).join('\n')}`,
         },
         success: true,
       }
