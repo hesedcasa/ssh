@@ -171,13 +171,36 @@ const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: str
     pattern: /\bStorage::(?:disk\s*\([^)]*\)\s*->\s*)?delete\w*\s*\(/i,
     what: 'Storage facade deletion',
   },
-  {label: 'Schema::drop*', pattern: /\bSchema::drop\w*\s*\(/i, what: 'Schema drop'},
+  {
+    // Any static ::drop*() call, whatever the class name — covers Schema::
+    // directly AND aliased facades (`use …\Facades\Schema as S; S::drop…`).
+    label: '::drop*()',
+    pattern: /::\s*drop\w*\s*\(/i,
+    what: 'Static schema drop call',
+  },
   {
     // Chained drops on any builder: Schema::connection('x')->dropAllTables(),
     // DB::connection()->getSchemaBuilder()->dropAllTables(), …
     label: '->drop*()',
     pattern: /->\s*drop\w*\s*\(/i,
     what: 'Chained schema/builder drop',
+  },
+  {
+    // The DB facade runs raw SQL, so ANY `drop` keyword in the same payload
+    // is treated as database deletion — the object-type list can't enumerate
+    // everything (DROP TEXT SEARCH CONFIGURATION, …), and there is no shell
+    // SQL client here for the client backstop to match.
+    label: 'DB::… with DROP',
+    pattern: /(?=[\s\S]*\bDB::)(?=[\s\S]*\bdrop\b)/i,
+    what: 'SQL DROP via the DB facade (any object type)',
+  },
+  {
+    // Aliasing a guarded facade would defeat every facade pattern above
+    // (`use …\Facades\File as F; F::deleteDirectory(…)`), so it is blocked
+    // outright.
+    label: String.raw`use …\Facades\X as Y`,
+    pattern: /use\s+illuminate\\+support\\+facades\\+(?:artisan|db|file|schema|storage)\s+as\s+/i,
+    what: 'Aliasing a guarded facade from tinker',
   },
   {
     // Blocked categorically, not just for destructive subcommands: the

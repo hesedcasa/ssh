@@ -322,6 +322,32 @@ describe('k8s:safety', () => {
       ).to.be.false
     })
 
+    it('blocks DB facade SQL containing DROP of any object type', () => {
+      expect(
+        checkTinkerDeletionPermission('DB::statement("DROP TEXT SEARCH CONFIGURATION english")').allowed,
+      ).to.be.false
+      // The drop keyword may precede the facade call (variable-passed SQL).
+      expect(
+        checkTinkerDeletionPermission('$sql = "drop text search dictionary d"; DB::unprepared($sql)').allowed,
+      ).to.be.false
+      // Ordinary DB facade use stays allowed, including drop-ish identifiers.
+      expect(checkTinkerDeletionPermission("DB::table('users')->count()").allowed).to.be.true
+      expect(checkTinkerDeletionPermission("DB::table('drop_logs')->count()").allowed).to.be.true
+    })
+
+    it('blocks aliased-facade drops and deletes from tinker', () => {
+      expect(
+        checkTinkerDeletionPermission(String.raw`use Illuminate\Support\Facades\Schema as S; S::dropAllTables()`)
+          .allowed,
+      ).to.be.false
+      // The generic ::drop*() rule catches the aliased call even in isolation.
+      expect(checkTinkerDeletionPermission('S::dropAllTables()').allowed).to.be.false
+      // Aliasing any guarded facade is itself refused.
+      expect(
+        checkTinkerDeletionPermission(String.raw`use Illuminate\Support\Facades\File as F; F::exists('x')`).allowed,
+      ).to.be.false
+    })
+
     it('blocks destructive artisan subcommand strings from tinker regardless of invocation route', () => {
       expect(checkTinkerDeletionPermission('$kernel->call("db:wipe")').allowed).to.be.false
       expect(checkTinkerDeletionPermission("$runner('migrate:fresh')").allowed).to.be.false
