@@ -16,6 +16,8 @@ sdkck plugins install @hesed/ssh
 * [Install](#install)
 * [SSH to Kubernetes pods](#ssh-to-kubernetes-pods)
 * [1. Add a server profile (interactive, or pass the flags below)](#1-add-a-server-profile-interactive-or-pass-the-flags-below)
+* [With a bastion (two-hop chain):](#with-a-bastion-two-hop-chain)
+* [Without a bastion (direct to kubectl host):](#without-a-bastion-direct-to-kubectl-host)
 * [2. Run a bash command in the first running pod](#2-run-a-bash-command-in-the-first-running-pod)
 * [3. Fan out across ALL pods (labelled output — useful for log scanning)](#3-fan-out-across-all-pods-labelled-output--useful-for-log-scanning)
 * [4. Laravel artisan](#4-laravel-artisan)
@@ -27,15 +29,21 @@ sdkck plugins install @hesed/ssh
 
 # SSH to Kubernetes pods
 
-This plugin reaches application pods via an SSH bastion chain
-(local → bastion → kubectl host → `kubectl exec`). Every connection detail
-(bastion host, kubectl host, namespace, pod labels, container, SSH user) lives
-in a **server profile** stored in `ssh-servers.json` under oclif's config dir.
+This plugin reaches application pods via an SSH chain. By default it uses a
+bastion jump host (local → bastion → kubectl host → `kubectl exec`), but the
+bastion is optional — omit it to SSH directly to the kubectl host. Every
+connection detail (bastion host, kubectl host, namespace, pod labels, container,
+SSH user) lives in a **server profile** stored in `ssh-servers.json` under
+oclif's config dir.
 
 ```bash
 # 1. Add a server profile (interactive, or pass the flags below)
+# With a bastion (two-hop chain):
 ssh ssh servers add -p prod --bastionHost sglogin.example.com \
   --sshHost k8s.example.com -u allen -n sa-prod
+
+# Without a bastion (direct to kubectl host):
+ssh ssh servers add -p dev --sshHost k8s-dev.example.com -u allen -n sa-dev
 
 # 2. Run a bash command in the first running pod
 ssh ssh exec pwd -p prod
@@ -72,7 +80,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.2.0 linux-x64 node-v22.23.1
+@hesed/ssh/0.2.0 darwin-arm64 node-v22.22.3
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -180,7 +188,8 @@ FLAGS
   -n, --namespace=<value>    (required) Kubernetes namespace
   -p, --profile=<value>      (required) Profile name
   -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  (required) Bastion / jump host (first SSH hop)
+      --bastionHost=<value>  Bastion / jump host (first SSH hop, optional — omit for a direct connection to
+                             the Kubernetes host)
       --component=<value>    (required) Pod component label
       --container=<value>    (required) Container name within the pod
       --role=<value>         (required) Pod role label
@@ -342,7 +351,8 @@ FLAGS
   -n, --namespace=<value>    (required) Kubernetes namespace
   -p, --profile=<value>      (required) Profile name
   -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  (required) Bastion / jump host (first SSH hop)
+      --bastionHost=<value>  Bastion / jump host (first SSH hop, optional — omit for a direct connection to
+                             the Kubernetes host)
       --component=<value>    (required) Pod component label
       --container=<value>    (required) Container name within the pod
       --role=<value>         (required) Pod role label

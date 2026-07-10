@@ -19,6 +19,14 @@ describe('k8s/config-loader', () => {
         sshHost: 'k8s.example.com',
         sshUser: 'deploy',
       },
+      direct: {
+        component: 'api',
+        container: 'app',
+        namespace: 'sa-prod',
+        role: 'app',
+        sshHost: 'k8s-node.example.com',
+        sshUser: 'allen',
+      },
       prod: {
         bastionHost: 'sglogin.example.com',
         component: 'api',
@@ -66,6 +74,13 @@ describe('k8s/config-loader', () => {
 
     it('lists available profiles in the error message', () => {
       expect(() => getServerConnectionOptions(mockConfig, 'nope')).to.throw('prod')
+    })
+
+    it('resolves a bastion-less profile (bastionHost undefined for a direct connection)', () => {
+      const conn = getServerConnectionOptions(mockConfig, 'direct')
+
+      expect(conn.sshHost).to.equal('k8s-node.example.com')
+      expect(conn.bastionHost).to.be.undefined
     })
   })
 })

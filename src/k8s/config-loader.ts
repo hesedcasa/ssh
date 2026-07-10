@@ -2,10 +2,10 @@
  * Configuration model for SSH-to-Kubernetes-pod execution.
  *
  * A {@link ServerProfile} describes the topology needed to reach a set of
- * application pods from the local machine: an SSH bastion jump host, the SSH
- * host that runs `kubectl`, the Kubernetes namespace, and the pod selector
- * labels/container. Nothing about a specific deployment is hard-coded — every
- * connection detail is profile data.
+ * application pods from the local machine: an optional SSH bastion jump host,
+ * the SSH host that runs `kubectl`, the Kubernetes namespace, and the pod
+ * selector labels/container. Nothing about a specific deployment is
+ * hard-coded — every connection detail is profile data.
  *
  * Profiles live on disk in `ssh-servers.json` as `{defaultProfile, profiles}`,
  * managed by `createProfileManager<ServerProfile>` from `@hesed/plugin-lib`.
@@ -17,8 +17,12 @@ export const DEFAULT_ARTISAN_PREFIX = 'php artisan'
 export interface ServerProfile {
   /** Prefix prepended to artisan subcommands, e.g. `php artisan`. */
   artisanPrefix?: string
-  /** First SSH hop: the bastion / jump host, e.g. `sglogin.example.com`. */
-  bastionHost: string
+  /**
+   * First SSH hop: the bastion / jump host, e.g. `sglogin.example.com`.
+   * Optional — when omitted the runner SSHes directly to `sshHost`
+   * (the host that runs `kubectl`), skipping the bastion hop entirely.
+   */
+  bastionHost?: string
   /**
    * Artisan subcommand prefixes (e.g. `migrate`) that `ssh artisan` refuses to
    * run against this profile. Empty/omitted means nothing is blocked — manage
@@ -52,7 +56,11 @@ export interface K8sConfig {
  */
 export interface ServerConnection {
   artisanPrefix: string
-  bastionHost: string
+  /**
+   * Bastion / jump host, or `undefined` when the profile has none — in that
+   * case the runner connects directly to `sshHost` with no first hop.
+   */
+  bastionHost?: string
   /** Resolved artisan blacklist for this profile; `[]` when none is configured. */
   blacklistedArtisanCommands: string[]
   component: string
