@@ -158,6 +158,14 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission(String.raw`find . -name "*.log" -exec rm {} \;`).allowed).to.be.false
     })
 
+    it('blocks find -exec running a nested shell or wrapper', () => {
+      expect(checkShellDeletionPermission(String.raw`find . -exec sh -c 'rm -rf storage' \;`).allowed).to.be.false
+      expect(checkShellDeletionPermission(String.raw`find . -execdir bash -c "rm {}" \;`).allowed).to.be.false
+      expect(checkShellDeletionPermission(String.raw`find . -ok sudo rm {} \;`).allowed).to.be.false
+      // Benign -exec commands stay allowed.
+      expect(checkShellDeletionPermission(String.raw`find . -name "*.log" -exec grep ERROR {} \;`).allowed).to.be.true
+    })
+
     it('blocks database drops in any casing', () => {
       expect(checkShellDeletionPermission('mysql -e "DROP DATABASE app"').allowed).to.be.false
       expect(checkShellDeletionPermission("psql -c 'drop schema public cascade'").allowed).to.be.false

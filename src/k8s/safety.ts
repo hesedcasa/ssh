@@ -335,9 +335,15 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
         return deny('find -delete', 'File/folder deletion command')
       }
 
-      // `find … -exec rm {} \;` — the deletion binary hides behind -exec.
-      if (/\s-exec(?:dir)?\s+(?:\S*\/)?(?:rm|rmdir|shred|srm|unlink)\b/.test(segment)) {
-        return deny('find -exec rm', 'File/folder deletion command')
+      // Whatever -exec/-execdir/-ok/-okdir runs is a command of its own, so
+      // recurse into the full check — this resolves wrappers inside it too
+      // (`find . -exec rm {} \;`, `find . -exec sh -c 'rm …' \;`).
+      const execArg = segment.match(/\s-(?:exec|execdir|ok|okdir)\s+(.+)/i)
+      if (execArg) {
+        const execCheck = checkShellDeletionPermission(execArg[1])
+        if (!execCheck.allowed) {
+          return execCheck
+        }
       }
     }
 
