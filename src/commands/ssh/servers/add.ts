@@ -4,12 +4,12 @@ import {closeConnections, SERVER_CONFIG_FILE, testServerConnection} from '../../
 
 const fields: FieldDef[] = [
   {
-    description: 'Bastion / jump host (first SSH hop, optional — omit for a direct connection to the Kubernetes host)',
+    description: 'Bastion host',
     name: 'bastionHost',
     required: false,
     type: 'string',
   },
-  {description: 'Kubernetes host (second SSH hop, runs kubectl)', name: 'sshHost', type: 'string'},
+  {description: 'Kubernetes host', name: 'sshHost', type: 'string'},
   {char: 'u', description: 'SSH username for both hops', name: 'sshUser', type: 'string'},
   {char: 'n', description: 'Kubernetes namespace', name: 'namespace', type: 'string'},
   {description: 'Pod component label', name: 'component', type: 'string'},
