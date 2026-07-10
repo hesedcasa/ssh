@@ -114,6 +114,16 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('/bin/rm foo').allowed).to.be.false
     })
 
+    it('blocks deletion hidden behind wrapper operands', () => {
+      expect(checkShellDeletionPermission('sudo -u postgres rm -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('nice -n 10 rm -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('timeout 30 rm foo').allowed).to.be.false
+      expect(checkShellDeletionPermission("sudo -u postgres psql -c 'DROP EXTENSION x'").allowed).to.be.false
+      // ...but a wrapper running a safe command stays allowed.
+      expect(checkShellDeletionPermission('sudo -u www-data php artisan cache:clear').allowed).to.be.true
+      expect(checkShellDeletionPermission('timeout 30 tail -f storage/logs/laravel.log').allowed).to.be.true
+    })
+
     it('blocks deletion behind nested shell interpreters', () => {
       expect(checkShellDeletionPermission("bash -c 'rm -rf storage'").allowed).to.be.false
       expect(checkShellDeletionPermission('sh -c "rm foo"').allowed).to.be.false
@@ -236,6 +246,17 @@ describe('k8s:safety', () => {
       expect(checkTinkerDeletionPermission('Schema::dropAllTables()').allowed).to.be.false
       expect(checkTinkerDeletionPermission("Schema::dropIfExists('users')").allowed).to.be.false
       expect(checkTinkerDeletionPermission('DB::statement("DROP DATABASE app")').allowed).to.be.false
+    })
+
+    it('blocks Artisan facade calls from tinker (guarded artisan access is `ssh artisan`)', () => {
+      expect(checkTinkerDeletionPermission("Artisan::call('migrate:fresh')").allowed).to.be.false
+      expect(checkTinkerDeletionPermission('Artisan::call("db:wipe")').allowed).to.be.false
+      expect(checkTinkerDeletionPermission("Artisan::queue('migrate:fresh')").allowed).to.be.false
+      // Categorical: even a non-destructive subcommand is refused, because the
+      // string can be assembled at runtime and `ssh artisan` exists for this.
+      expect(checkTinkerDeletionPermission("Artisan::call('cache:'.'clear')").allowed).to.be.false
+      expect(checkTinkerDeletionPermission(String.raw`\Illuminate\Support\Facades\Artisan::call('db:wipe')`).allowed).to
+        .be.false
     })
 
     it('blocks shell escapes from tinker', () => {

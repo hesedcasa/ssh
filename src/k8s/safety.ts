@@ -170,6 +170,15 @@ const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: str
   },
   {label: 'Schema::drop*', pattern: /\bSchema::drop\w*\s*\(/i, what: 'Schema drop'},
   {
+    // Blocked categorically, not just for destructive subcommands: the
+    // subcommand string can be assembled at runtime ('migrate:'.'fresh'),
+    // so pattern-matching it is evadable. Guarded artisan access exists
+    // via `ssh artisan`.
+    label: 'Artisan::call()/queue()',
+    pattern: /\bArtisan::(?:call|queue)\s*\(/i,
+    what: 'Artisan invocation from tinker (use `ssh artisan` instead, which is guarded)',
+  },
+  {
     label: 'exec()/shell_exec()/system()/…',
     pattern: /\b(?:exec|shell_exec|system|passthru|proc_open|popen|pcntl_exec)\s*\(/i,
     what: 'Shell execution from tinker (could delete files)',
@@ -178,11 +187,21 @@ const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: str
 ]
 
 /**
- * Resolve the effective command word of one shell segment: skip leading
+ * Resolve the effective command word(s) of one shell segment: skip leading
  * `VAR=value` assignments, option flags, and command wrappers (`sudo`,
  * `xargs`, …), then strip any path prefix so `/bin/rm` matches `rm`.
+ *
+ * Without a wrapper the first real token is the only command word. Once a
+ * wrapper is seen, EVERY later non-flag token is a candidate — a wrapper's
+ * operand can otherwise shadow the real command (`sudo -u postgres rm …`
+ * would resolve to `postgres`, `timeout 30 rm foo` to `30`). This over-counts
+ * arguments in wrapper segments (`sudo echo rm` is blocked), which the guard
+ * accepts as a conservative trade-off.
  */
-function resolveCommandWord(segment: string): string | undefined {
+function resolveCommandWords(segment: string): string[] {
+  const words: string[] = []
+  let sawWrapper = false
+
   for (const rawToken of segment.trim().split(/\s+/)) {
     // Strip wrapping quotes so `'rm'` still resolves to rm.
     const token = rawToken.replaceAll(/^["']+|["']+$/g, '')
@@ -192,13 +211,17 @@ function resolveCommandWord(segment: string): string | undefined {
 
     const bare = (token.split('/').pop() ?? token).toLowerCase()
     if (COMMAND_WRAPPERS.has(bare)) {
+      sawWrapper = true
       continue
     }
 
-    return bare
+    words.push(bare)
+    if (!sawWrapper) {
+      break
+    }
   }
 
-  return undefined
+  return words
 }
 
 /** Match an artisan subcommand against the built-in destructive prefixes. */
@@ -228,16 +251,17 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
   // deletion inside a subshell, brace group, or `$(…)` starts its own
   // segment (`( rm -rf storage )`, `{ rm foo; }`, `echo $(rm foo)`).
   for (const segment of command.split(/[\n;&|(){}]|`/)) {
-    const word = resolveCommandWord(segment)
-    if (!word) {
+    const words = resolveCommandWords(segment)
+    if (words.length === 0) {
       continue
     }
 
-    if (FILE_DELETION_BINARIES.has(word)) {
-      return deny(word, 'File/folder deletion command')
+    const deletionWord = words.find((w) => FILE_DELETION_BINARIES.has(w))
+    if (deletionWord) {
+      return deny(deletionWord, 'File/folder deletion command')
     }
 
-    if (word === 'find') {
+    if (words.includes('find')) {
       if (/\s-delete\b/.test(segment)) {
         return deny('find -delete', 'File/folder deletion command')
       }
@@ -248,15 +272,16 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
       }
     }
 
-    if (word === 'mysqladmin' && /\bdrop\b/i.test(segment)) {
+    if (words.includes('mysqladmin') && /\bdrop\b/i.test(segment)) {
       return deny('mysqladmin drop', 'Database deletion command')
     }
 
     // Backstop for SQL object types the DROP pattern doesn't enumerate
     // (DROP EXTENSION, DROP TYPE, DROP OWNED BY, …): any DROP handed to a
     // SQL client is treated as database deletion.
-    if (SQL_CLIENT_BINARIES.has(word) && /\bdrop\b/i.test(segment)) {
-      return deny(`${word} … drop`, 'Database deletion command')
+    const sqlClient = words.find((w) => SQL_CLIENT_BINARIES.has(w))
+    if (sqlClient && /\bdrop\b/i.test(segment)) {
+      return deny(`${sqlClient} … drop`, 'Database deletion command')
     }
 
     // Catch destructive artisan subcommands smuggled through `ssh exec`
