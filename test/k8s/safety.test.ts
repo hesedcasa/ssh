@@ -216,6 +216,13 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('cd /var/www && php artisan db:wipe').allowed).to.be.false
     })
 
+    it('blocks a destructive artisan command later in a compound command', () => {
+      expect(checkShellDeletionPermission('php artisan cache:clear && php artisan db:wipe').allowed).to.be.false
+      expect(checkShellDeletionPermission('php artisan route:list; php artisan migrate:fresh').allowed).to.be.false
+      // A compound of only safe artisan commands stays allowed.
+      expect(checkShellDeletionPermission('php artisan cache:clear && php artisan route:list').allowed).to.be.true
+    })
+
     it('blocks tinker payloads smuggled through exec', () => {
       expect(checkShellDeletionPermission(`php artisan tinker --execute="Artisan::call('cache:clear')"`).allowed).to.be
         .false
@@ -250,6 +257,16 @@ describe('k8s:safety', () => {
       // Opaque values used as ARGUMENTS (not the command word) stay allowed.
       expect(checkShellDeletionPermission('files=$(ls); cat $files').allowed).to.be.true
       expect(checkShellDeletionPermission('dir=$(pwd); cd $dir').allowed).to.be.true
+    })
+
+    it('blocks a direct command substitution used as the command word', () => {
+      expect(checkShellDeletionPermission('$(printf rm) -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('`printf rm` -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('ls && $(printf rm) -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('( $(evil) )').allowed).to.be.false
+      // Command substitution as an ARGUMENT stays allowed.
+      expect(checkShellDeletionPermission('grep $(cat patterns) file').allowed).to.be.true
+      expect(checkShellDeletionPermission('echo $(date)').allowed).to.be.true
     })
 
     it('allows ordinary read/write commands', () => {

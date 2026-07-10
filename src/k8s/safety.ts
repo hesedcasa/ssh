@@ -395,13 +395,23 @@ export function checkShellDeletionPermission(rawCommand: string): PermissionChec
     return deny(sqlDrop[0], 'SQL that drops a database object')
   }
 
+  // A command word that is itself a command substitution (`$(…)` or
+  // backticks) is produced by the pod shell at runtime and can't be verified
+  // (`$(printf rm) -rf storage`). Refused wherever it stands as a command —
+  // at the start of the command or right after a separator. As an argument
+  // (`grep $(cat pat) file`) it is untouched.
+  if (/(?:^|[\n;&|(){}])\s*(?:\$\(|`)/.test(command)) {
+    return deny('$(…) command word', 'Command word built from substitution (cannot be verified)')
+  }
+
   // Catch artisan invocations smuggled through `ssh exec` (`php artisan
   // migrate:fresh`, `php artisan tinker --execute="…"`). Checked on the
-  // WHOLE command, before segment splitting, because splitting on `(`
-  // would tear apart the tinker PHP patterns.
-  const artisanArg = command.match(/\bartisan\s+(.+)/is)
-  if (artisanArg) {
-    const artisanCheck = checkEmbeddedArtisanArg(artisanArg[1])
+  // WHOLE command (not per split segment, which would tear apart tinker PHP
+  // payloads at parentheses) and at EVERY `artisan` occurrence, so a later
+  // one in a compound command (`… cache:clear && php artisan db:wipe`) is
+  // scanned too rather than swallowed by the first greedy match.
+  for (const match of command.matchAll(/\bartisan\s+/gi)) {
+    const artisanCheck = checkEmbeddedArtisanArg(command.slice(match.index + match[0].length))
     if (!artisanCheck.allowed) {
       return artisanCheck
     }
