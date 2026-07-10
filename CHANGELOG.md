@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/hesedcasa/ssh/compare/v0.3.0...v0.3.1) (2026-07-10)
+
+
+### 🛠️ Fixes
+
+* drop literal quotes on direct SSH connections ([ba12eda](https://github.com/hesedcasa/ssh/commit/ba12edaf1d0d1444f79061c5135c180e0c4b85e3))
+
 ## [0.3.0](https://github.com/hesedcasa/ssh/compare/v0.2.0...v0.3.0) (2026-07-10)
 
 
