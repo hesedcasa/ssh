@@ -120,6 +120,13 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission("sudo bash -c 'rm -rf /var/www'").allowed).to.be.false
     })
 
+    it('blocks deletion behind the eval builtin', () => {
+      expect(checkShellDeletionPermission("bash -c 'eval rm -rf storage'").allowed).to.be.false
+      expect(checkShellDeletionPermission('eval rm -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('eval "rm foo"').allowed).to.be.false
+      expect(checkShellDeletionPermission('eval sudo rm foo').allowed).to.be.false
+    })
+
     it('blocks deletion inside loops, brace groups, and subshells', () => {
       expect(checkShellDeletionPermission('for f in storage/*.log; do rm "$f"; done').allowed).to.be.false
       expect(checkShellDeletionPermission('while true; do rm foo; done').allowed).to.be.false
@@ -148,6 +155,18 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('mysql -e "DROP TEMPORARY TABLE tmp_import"').allowed).to.be.false
       expect(checkShellDeletionPermission('mysql -e "DROP TABLE IF EXISTS users"').allowed).to.be.false
       expect(checkShellDeletionPermission("psql -c 'DROP TRIGGER audit_trigger ON users'").allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP EXTENSION pgcrypto'").allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP TYPE status_enum'").allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP FOREIGN TABLE remote_users'").allowed).to.be.false
+      expect(checkShellDeletionPermission("psql -c 'DROP OWNED BY app_user'").allowed).to.be.false
+    })
+
+    it('blocks any DROP handed to a SQL client, even unrecognised object types', () => {
+      expect(checkShellDeletionPermission("psql -c 'DROP FUTURE_OBJECT thing'").allowed).to.be.false
+      expect(checkShellDeletionPermission('mysql -e "drop whatever"').allowed).to.be.false
+      expect(checkShellDeletionPermission('sqlite3 app.db "DROP x"').allowed).to.be.false
+      // …while non-DROP SQL through the same clients stays allowed.
+      expect(checkShellDeletionPermission('psql -c "select count(*) from dropped_items"').allowed).to.be.true
     })
 
     it('blocks destructive artisan subcommands smuggled through exec', () => {

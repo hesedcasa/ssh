@@ -82,11 +82,13 @@ const FILE_DELETION_BINARIES = new Set(['rm', 'rmdir', 'shred', 'srm', 'unlink']
 /**
  * Wrappers that execute the token that follows them, so `sudo rm`,
  * `xargs rm`, or `env FOO=1 rm` resolve to `rm` rather than the wrapper.
- * Shell interpreters and shell keywords are treated the same way: in
- * `bash -c 'rm …'` or `do rm "$f"` the effective command is the `rm`
- * that follows, not `bash`/`do`.
+ * Shell interpreters, shell keywords, and command-running builtins
+ * (`eval`, `source`, `.`) are treated the same way: in `bash -c 'rm …'`,
+ * `do rm "$f"`, or `eval rm …` the effective command is the `rm` that
+ * follows, not `bash`/`do`/`eval`.
  */
 const COMMAND_WRAPPERS = new Set([
+  '.',
   'ash',
   'bash',
   'builtin',
@@ -97,6 +99,7 @@ const COMMAND_WRAPPERS = new Set([
   'elif',
   'else',
   'env',
+  'eval',
   'exec',
   'if',
   'ionice',
@@ -104,6 +107,7 @@ const COMMAND_WRAPPERS = new Set([
   'nice',
   'nohup',
   'sh',
+  'source',
   'stdbuf',
   'sudo',
   'then',
@@ -125,11 +129,30 @@ const DESTRUCTIVE_ARTISAN_PREFIXES = ['db:wipe', 'migrate:fresh', 'migrate:refre
 /**
  * SQL that removes a database object — in any quoting or case. Covers the
  * whole destructive DDL family (database, schema, table, view, index,
- * function, …), including modifiers like `DROP TEMPORARY TABLE` and
- * `DROP MATERIALIZED VIEW`.
+ * function, extension, type, …), including modifiers like `DROP TEMPORARY
+ * TABLE`, `DROP MATERIALIZED VIEW`, and `DROP FOREIGN TABLE`. This list can
+ * never be exhaustive — {@link SQL_CLIENT_BINARIES} below backstops it by
+ * blocking ANY `DROP` handed to a known SQL client.
  */
 const SQL_DROP_PATTERN =
-  /\bdrop\s+(?:temporary\s+|materialized\s+)?(?:database|schema|table|view|index|function|procedure|trigger|sequence|event|user|role)\b/i
+  /\bdrop\s+(?:temporary\s+|materialized\s+|foreign\s+|if\s+exists\s+)*(?:access\s+method|aggregate|cast|collation|conversion|data\s+wrapper|database|domain|event|extension|function|index|language|operator|owned|package|policy|procedure|publication|role|routine|rule|schema|sequence|server|statistics|subscription|table|tablespace|transform|trigger|type|user|view)\b/i
+
+/**
+ * SQL client binaries. A segment invoking one of these with `drop` anywhere
+ * in it is blocked outright, whatever the object type — this is the
+ * non-enumerated backstop for {@link SQL_DROP_PATTERN}.
+ */
+const SQL_CLIENT_BINARIES = new Set([
+  'clickhouse-client',
+  'mariadb',
+  'mongo',
+  'mongosh',
+  'mysql',
+  'mysqlsh',
+  'psql',
+  'sqlcmd',
+  'sqlite3',
+])
 
 /** PHP snippets tinker must never run: file deletion, DB drops, shell escapes. */
 const TINKER_DELETION_PATTERNS: Array<{label: string; pattern: RegExp; what: string}> = [
@@ -227,6 +250,13 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
 
     if (word === 'mysqladmin' && /\bdrop\b/i.test(segment)) {
       return deny('mysqladmin drop', 'Database deletion command')
+    }
+
+    // Backstop for SQL object types the DROP pattern doesn't enumerate
+    // (DROP EXTENSION, DROP TYPE, DROP OWNED BY, …): any DROP handed to a
+    // SQL client is treated as database deletion.
+    if (SQL_CLIENT_BINARIES.has(word) && /\bdrop\b/i.test(segment)) {
+      return deny(`${word} … drop`, 'Database deletion command')
     }
 
     // Catch destructive artisan subcommands smuggled through `ssh exec`

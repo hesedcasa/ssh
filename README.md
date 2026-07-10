@@ -58,7 +58,7 @@ ssh ssh tinker "App\\Models\\User::count()" -p prod
 > before anything reaches a pod. Commands that delete files or folders
 > (`rm`, `rmdir`, `unlink`, `shred`, `find -delete`, PHP `unlink()`,
 > `File::delete*`, `Storage::delete*`, …) or drop/wipe a database
-> (`DROP DATABASE/SCHEMA/TABLE`, `mysqladmin drop`, `db:wipe`,
+> (`DROP <object>` DDL, any `DROP` via a SQL client, `mysqladmin drop`, `db:wipe`,
 > `migrate:fresh/refresh/reset/rollback`, `Schema::drop*`, shell escapes from
 > tinker, …) are refused. No flag, profile setting, or config edit can
 > disable this guard — if such an operation is genuinely required, a human
