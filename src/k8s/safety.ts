@@ -79,6 +79,9 @@ function deny(matchedPattern: string, what: string): PermissionCheckResult {
 /** Binaries whose purpose is deleting files or directories. */
 const FILE_DELETION_BINARIES = new Set(['rm', 'rmdir', 'shred', 'srm', 'unlink'])
 
+/** Standalone binaries whose purpose is dropping databases (PostgreSQL ships these). */
+const DB_DROP_BINARIES = new Set(['dropdb', 'dropuser'])
+
 /**
  * Wrappers that execute the token that follows them, so `sudo rm`,
  * `xargs rm`, or `env FOO=1 rm` resolve to `rm` rather than the wrapper.
@@ -328,6 +331,11 @@ export function checkShellDeletionPermission(command: string): PermissionCheckRe
     const deletionWord = words.find((w) => FILE_DELETION_BINARIES.has(w))
     if (deletionWord) {
       return deny(deletionWord, 'File/folder deletion command')
+    }
+
+    const dbDropWord = words.find((w) => DB_DROP_BINARIES.has(w))
+    if (dbDropWord) {
+      return deny(dbDropWord, 'Database deletion command')
     }
 
     if (words.includes('find')) {

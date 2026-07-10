@@ -187,6 +187,14 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission("psql -c 'DROP OWNED BY app_user'").allowed).to.be.false
     })
 
+    it('blocks standalone database drop binaries', () => {
+      expect(checkShellDeletionPermission('dropdb app_db').allowed).to.be.false
+      expect(checkShellDeletionPermission('sudo -u postgres dropdb app_db').allowed).to.be.false
+      expect(checkShellDeletionPermission('dropuser app_user').allowed).to.be.false
+      // createdb and other neighbours stay allowed.
+      expect(checkShellDeletionPermission('createdb app_db').allowed).to.be.true
+    })
+
     it('blocks any DROP handed to a SQL client, even unrecognised object types', () => {
       expect(checkShellDeletionPermission("psql -c 'DROP FUTURE_OBJECT thing'").allowed).to.be.false
       expect(checkShellDeletionPermission('mysql -e "drop whatever"').allowed).to.be.false
