@@ -138,6 +138,14 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission(String.raw`r\m -rf storage`).allowed).to.be.false
     })
 
+    it('blocks deletion dispatched through a BusyBox/Toybox applet', () => {
+      expect(checkShellDeletionPermission('busybox rm -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('sudo busybox rm -rf /var/www').allowed).to.be.false
+      expect(checkShellDeletionPermission('toybox rm foo').allowed).to.be.false
+      // A BusyBox applet that isn't a deletion command stays allowed.
+      expect(checkShellDeletionPermission('busybox ls -la').allowed).to.be.true
+    })
+
     it('blocks deletion behind the eval builtin', () => {
       expect(checkShellDeletionPermission("bash -c 'eval rm -rf storage'").allowed).to.be.false
       expect(checkShellDeletionPermission('eval rm -rf storage').allowed).to.be.false

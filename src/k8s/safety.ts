@@ -85,16 +85,18 @@ const DB_DROP_BINARIES = new Set(['dropdb', 'dropuser'])
 /**
  * Wrappers that execute the token that follows them, so `sudo rm`,
  * `xargs rm`, or `env FOO=1 rm` resolve to `rm` rather than the wrapper.
- * Shell interpreters, shell keywords, and command-running builtins
- * (`eval`, `source`, `.`) are treated the same way: in `bash -c 'rm …'`,
- * `do rm "$f"`, or `eval rm …` the effective command is the `rm` that
- * follows, not `bash`/`do`/`eval`.
+ * Shell interpreters, shell keywords, command-running builtins
+ * (`eval`, `source`, `.`), and applet multiplexers (`busybox`, `toybox`)
+ * are treated the same way: in `bash -c 'rm …'`, `do rm "$f"`, `eval rm …`,
+ * or `busybox rm …` the effective command is the `rm` that follows, not
+ * `bash`/`do`/`eval`/`busybox`.
  */
 const COMMAND_WRAPPERS = new Set([
   '.',
   'ash',
   'bash',
   'builtin',
+  'busybox',
   'command',
   'dash',
   'do',
@@ -116,6 +118,7 @@ const COMMAND_WRAPPERS = new Set([
   'then',
   'time',
   'timeout',
+  'toybox',
   'until',
   'while',
   'xargs',
