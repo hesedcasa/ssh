@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/hesedcasa/ssh/compare/v0.2.0...v0.3.0) (2026-07-10)
+
+
+### 🎉 Features
+
+* make bastion host optional for direct SSH connections ([95ce871](https://github.com/hesedcasa/ssh/commit/95ce871a847e3d7f5f7335a8caa8afc926ae4c4e))
+* make bastion host optional for direct SSH connections ([29383c7](https://github.com/hesedcasa/ssh/commit/29383c7fe74fb92b322df202ad2525e4ef39b40d))
+* make bastion host optional for direct SSH connections ([07b5bd2](https://github.com/hesedcasa/ssh/commit/07b5bd2ae4f5131494d5fe1eb7f029a31c1edfd6))
+
 ## [0.2.0](https://github.com/hesedcasa/ssh/compare/v0.1.0...v0.2.0) (2026-07-09)
 
 
