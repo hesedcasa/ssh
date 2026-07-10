@@ -317,30 +317,54 @@ function checkEmbeddedArtisanArg(artisanArg: string): PermissionCheckResult {
 }
 
 /**
+ * Sentinel a shell variable expands to when its value is dynamic (assigned
+ * from command substitution or another opaque variable). It stands in for
+ * "a command word we cannot verify statically"; the scan loop refuses any
+ * segment that runs it as a command. Deliberately not a real binary name,
+ * so it can only appear here.
+ */
+const OPAQUE_COMMAND_TOKEN = 'opaque-substituted-command'
+
+/**
  * Inline simple shell variable assignments so a deletion hidden behind a
  * variable is caught: `cmd=rm; $cmd -rf storage` becomes `cmd=rm; rm -rf
- * storage` before scanning. Only single-token literal assignments are
- * expanded (`VAR=value`, quotes stripped) — enough to defeat the common
- * indirection without attempting a full shell evaluator. Repeated until no
- * further substitution occurs so chained aliases (`a=rm; b=$a; $b …`)
- * collapse too, with a small iteration cap as a backstop.
+ * storage` before scanning. Repeated until no further substitution occurs so
+ * chained aliases (`a=rm; b=$a; $b …`) collapse too, with a small iteration
+ * cap as a backstop.
+ *
+ * Values that are themselves dynamic — command substitution (`x=$(…)`,
+ * backticks) or a reference to another variable — cannot be resolved
+ * statically. We can't know what `x=$(printf rm)` produces, so such a
+ * variable expands to {@link OPAQUE_COMMAND_TOKEN}: harmless as an argument
+ * (`cat $files`), but refused if used as the command word (`$cmd -rf …`).
  */
 function expandShellAssignments(command: string): string {
-  const assignments = new Map<string, string>()
+  const literals = new Map<string, string>()
+  const opaque = new Set<string>()
   for (const [, name, rawValue] of command.matchAll(/(\b\w+)=("[^"]*"|'[^']*'|\S+)/g)) {
-    assignments.set(name, rawValue.replaceAll(/["']/g, ''))
+    if (/[$`]/.test(rawValue)) {
+      // Value contains a substitution or another variable — unresolvable.
+      opaque.add(name)
+    } else {
+      literals.set(name, rawValue.replaceAll(/["']/g, ''))
+    }
   }
 
-  if (assignments.size === 0) {
+  if (literals.size === 0 && opaque.size === 0) {
     return command
   }
 
   let expanded = command
   for (let i = 0; i < 5; i++) {
-    // Replace `$VAR` and `${VAR}` with the assigned value.
+    // Replace `$VAR` and `${VAR}` with the assigned value (or the opaque
+    // sentinel, space-isolated so it reads as its own token).
     const next = expanded.replaceAll(/\$\{(\w+)\}|\$(\w+)/g, (match, braced, bare) => {
       const name = braced ?? bare
-      return assignments.has(name) ? assignments.get(name)! : match
+      if (literals.has(name)) {
+        return literals.get(name)!
+      }
+
+      return opaque.has(name) ? ` ${OPAQUE_COMMAND_TOKEN} ` : match
     })
     if (next === expanded) {
       break
@@ -387,6 +411,13 @@ export function checkShellDeletionPermission(rawCommand: string): PermissionChec
     const words = resolveCommandWords(segment)
     if (words.length === 0) {
       continue
+    }
+
+    // A command word built from command substitution or another opaque
+    // variable (`cmd=$(printf rm); $cmd …`) can't be verified statically, so
+    // running it as a command is refused outright.
+    if (words.includes(OPAQUE_COMMAND_TOKEN)) {
+      return deny('$(…) command word', 'Command word built from substitution or an opaque variable (cannot be verified)')
     }
 
     const deletionWord = words.find((w) => FILE_DELETION_BINARIES.has(w))

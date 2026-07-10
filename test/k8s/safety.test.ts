@@ -235,6 +235,15 @@ describe('k8s:safety', () => {
       expect(checkShellDeletionPermission('cmd=ls; $cmd -la').allowed).to.be.true
     })
 
+    it('blocks command words built from command substitution or opaque variables', () => {
+      expect(checkShellDeletionPermission('cmd=$(printf rm); $cmd -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('cmd=`printf rm`; $cmd -rf storage').allowed).to.be.false
+      expect(checkShellDeletionPermission('a=$(which rm); $a file').allowed).to.be.false
+      // Opaque values used as ARGUMENTS (not the command word) stay allowed.
+      expect(checkShellDeletionPermission('files=$(ls); cat $files').allowed).to.be.true
+      expect(checkShellDeletionPermission('dir=$(pwd); cd $dir').allowed).to.be.true
+    })
+
     it('allows ordinary read/write commands', () => {
       expect(checkShellDeletionPermission('pwd').allowed).to.be.true
       expect(checkShellDeletionPermission('tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log').allowed).to.be.true
