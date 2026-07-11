@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/hesedcasa/ssh/compare/v0.3.1...v0.4.0) (2026-07-11)
+
+
+### 🎉 Features
+
+* add ssh servers discover command; fix pod selector bug ([68e5d13](https://github.com/hesedcasa/ssh/commit/68e5d13461c5e492bb91f8fc45b997288759c2ca))
+* add ssh servers discover command; fix pod selector bug ([774ecfc](https://github.com/hesedcasa/ssh/commit/774ecfc048e01ca45ba9993d2d3d5e6e58291399))
+
+
+### 🛠️ Fixes
+
+* reject shell metacharacters in namespace/component/role/container ([4ff2bf9](https://github.com/hesedcasa/ssh/commit/4ff2bf9ea6fbec57bafa03780ef7b959d955ee48))
+
 ## [0.3.1](https://github.com/hesedcasa/ssh/compare/v0.3.0...v0.3.1) (2026-07-10)
 
 
