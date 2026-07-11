@@ -80,7 +80,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.3.1 linux-x64 node-v22.23.1
+@hesed/ssh/0.3.1 darwin-arm64 node-v22.22.3
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -95,6 +95,7 @@ USAGE
 * [`ssh ssh exec COMMAND`](#ssh-ssh-exec-command)
 * [`ssh ssh servers add`](#ssh-ssh-servers-add)
 * [`ssh ssh servers delete`](#ssh-ssh-servers-delete)
+* [`ssh ssh servers discover`](#ssh-ssh-servers-discover)
 * [`ssh ssh servers list`](#ssh-ssh-servers-list)
 * [`ssh ssh servers profile`](#ssh-ssh-servers-profile)
 * [`ssh ssh servers safety`](#ssh-ssh-servers-safety)
@@ -232,6 +233,34 @@ EXAMPLES
 ```
 
 _See code: [src/commands/ssh/servers/delete.ts](https://github.com/hesedcasa/ssh/blob/v0.3.1/src/commands/ssh/servers/delete.ts)_
+
+## `ssh ssh servers discover`
+
+Discover the component/role label values on a namespace's running pods (valid --component/--role targets)
+
+```
+USAGE
+  $ ssh ssh servers discover [--json] [--namespace <value>] [-p <value>]
+
+FLAGS
+  -p, --profile=<value>    SSH server profile name from config
+      --namespace=<value>  Override Kubernetes namespace (default: from profile)
+
+GLOBAL FLAGS
+  --json  Format output as json.
+
+DESCRIPTION
+  Discover the component/role label values on a namespace's running pods (valid --component/--role targets)
+
+EXAMPLES
+  $ ssh ssh servers discover
+
+  $ ssh ssh servers discover -p prod
+
+  $ ssh ssh servers discover --namespace sa-testqa
+```
+
+_See code: [src/commands/ssh/servers/discover.ts](https://github.com/hesedcasa/ssh/blob/v0.3.1/src/commands/ssh/servers/discover.ts)_
 
 ## `ssh ssh servers list`
 

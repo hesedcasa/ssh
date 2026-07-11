@@ -46,6 +46,24 @@ export interface ConnectionTestData {
 
 export type ConnectionTestResult = ApiResult & {data?: ConnectionTestData}
 
+/** One distinct component/role combination and how many running pods carry it. */
+export interface PodLabelCombo {
+  component: string
+  count: number
+  role: string
+}
+
+/** Label-discovery payload returned by {@link PodRunner.discoverLabels}. */
+export interface DiscoverLabelsData {
+  combos: PodLabelCombo[]
+  components: string[]
+  namespace: string
+  result?: string
+  roles: string[]
+}
+
+export type DiscoverLabelsResult = ApiResult & {data?: DiscoverLabelsData}
+
 /**
  * Runs an SSH command locally. Isolated as a parameter so tests can stub it
  * instead of making real network calls.
@@ -69,30 +87,23 @@ export const defaultSshRunner: SshRunner = (args, timeoutMs) =>
   })
 
 /**
- * Build the remote `kubectl exec` invocation for a single pod.
+ * Wrap a remote command in the SSH-hop argument list for `conn`.
  *
- * The inner command is base64-encoded and decoded on the remote host so any
- * quoting, single quotes, or `$` variables in it survive both SSH hops
- * untouched — the same technique the original bash script used.
+ * With a bastion:  ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
+ * Without one:     ssh <user>@<sshHost> -- <remoteCommand>
+ *
+ * The single quotes exist only for the bastion hop, and there they are
+ * load-bearing: the bastion's login shell parses the forwarded string, and
+ * without quoting it — not the k8s host — evaluates any `$(...)`, `|`, and
+ * `;` in remoteCommand before the nested `ssh` ever sees it, so
+ * `sudo kubectl` silently runs against the bastion instead of the k8s host.
+ *
+ * On a direct connection there is no intermediate shell to strip quotes:
+ * the target's shell is the first to parse the string, so literal quotes
+ * would survive quote-removal as a single word and bash would try to
+ * execute the whole command line as one command name ("command not found").
  */
-export function buildPodExecArgs(conn: ServerConnection, pod: string, command: string): string[] {
-  const encoded = Buffer.from(command).toString('base64')
-  // `$(` and `$CMD` are not `${}` interpolations, so they stay literal here —
-  // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
-  const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
-  // With a bastion:  ssh <user>@<bastion> -- ssh <sshHost> -- '<remoteCommand>'
-  // Without one:     ssh <user>@<sshHost> -- <remoteCommand>
-  //
-  // The single quotes exist only for the bastion hop, and there they are
-  // load-bearing: the bastion's login shell parses the forwarded string, and
-  // without quoting it — not the k8s host — evaluates the `$(...)`, `|`, and
-  // `;` in remoteCommand before the nested `ssh` ever sees it, so
-  // `sudo kubectl exec` silently runs against the bastion instead of the pod.
-  //
-  // On a direct connection there is no intermediate shell to strip quotes:
-  // the target's shell is the first to parse the string, so literal quotes
-  // would survive quote-removal as a single word and bash would try to
-  // execute the whole command line as one command name ("command not found").
+function wrapForHops(conn: ServerConnection, remoteCommand: string): string[] {
   if (conn.bastionHost) {
     return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
   }
@@ -100,20 +111,88 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
   return [`${conn.sshUser}@${conn.sshHost}`, '--', remoteCommand]
 }
 
+/**
+ * Kubernetes namespace/label/container names are DNS-1123-ish: letters,
+ * digits, `-`, `_`, `.`. Nothing in that set can break out of the remote
+ * shell string these values are interpolated into below.
+ */
+const SAFE_K8S_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/
+
+/**
+ * Reject any `ServerConnection` field — whether it came from a stored profile
+ * or a CLI override like `--namespace`/`--component` — before it is
+ * interpolated into a remote shell command. Without this, a value such as
+ * `sa-test; rm -rf /` would terminate the intended `kubectl` argument and run
+ * an attacker-controlled command on the SSH target (or bastion) instead of
+ * merely failing to match a namespace.
+ */
+function assertSafeK8sValue(value: string, field: string): void {
+  if (!SAFE_K8S_NAME.test(value)) {
+    throw new Error(`Invalid ${field} "${value}": only letters, numbers, "-", "_", and "." are allowed.`)
+  }
+}
+
+/**
+ * Build the remote `kubectl exec` invocation for a single pod.
+ *
+ * The inner command is base64-encoded and decoded on the remote host so any
+ * quoting, single quotes, or `$` variables in it survive both SSH hops
+ * untouched — the same technique the original bash script used.
+ */
+export function buildPodExecArgs(conn: ServerConnection, pod: string, command: string): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
+  assertSafeK8sValue(conn.container, 'container')
+  const encoded = Buffer.from(command).toString('base64')
+  // `$(` and `$CMD` are not `${}` interpolations, so they stay literal here —
+  // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
+  const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
+  return wrapForHops(conn, remoteCommand)
+}
+
 /** Build the remote `kubectl get pod` invocation used to discover pods. */
 export function buildListPodsArgs(conn: ServerConnection): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
+  assertSafeK8sValue(conn.component, 'component')
+  assertSafeK8sValue(conn.role, 'role')
   // --field-selector=status.phase=Running restricts to running pods; -o=name
   // yields `pod/<name>` lines, which we strip below.
-  const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -l component=${conn.component} -l role=${conn.role} -o=name --field-selector=status.phase=Running`
-  // Quoted on the bastion hop for the same reason as buildPodExecArgs, above —
-  // this command happens to contain no shell metacharacters today, but relying
-  // on that is fragile, so it gets the same protection. See buildPodExecArgs
-  // for why the direct hop must NOT carry literal quotes.
-  if (conn.bastionHost) {
-    return [`${conn.sshUser}@${conn.bastionHost}`, '--', 'ssh', conn.sshHost, '--', `'${remoteCommand}'`]
+  // Both labels must live in ONE -l flag: kubectl's --selector is a plain
+  // string flag, so a repeated -l silently replaces the earlier one.
+  const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -l component=${conn.component},role=${conn.role} -o=name --field-selector=status.phase=Running`
+  return wrapForHops(conn, remoteCommand)
+}
+
+/**
+ * Build the unfiltered `kubectl get pod` invocation used by label discovery:
+ * every running pod in the namespace with its component/role label values.
+ */
+export function buildDiscoverLabelsArgs(conn: ServerConnection): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
+  const columns = 'NAME:.metadata.name,COMPONENT:.metadata.labels.component,ROLE:.metadata.labels.role'
+  const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -o custom-columns=${columns} --no-headers --field-selector=status.phase=Running`
+  return wrapForHops(conn, remoteCommand)
+}
+
+/**
+ * Parse `kubectl get pod -o custom-columns=...` (no headers) output into
+ * distinct component/role combinations with pod counts. kubectl prints
+ * `<none>` for pods missing a label; that value is kept verbatim.
+ */
+export function parsePodLabels(stdout: string): PodLabelCombo[] {
+  const counts = new Map<string, PodLabelCombo>()
+  for (const line of stdout.split('\n')) {
+    const [pod, component, role] = line.trim().split(/\s+/)
+    if (!pod || !component || !role) continue
+    const key = `${component} ${role}`
+    const existing = counts.get(key)
+    if (existing) {
+      existing.count += 1
+    } else {
+      counts.set(key, {component, count: 1, role})
+    }
   }
 
-  return [`${conn.sshUser}@${conn.sshHost}`, '--', remoteCommand]
+  return [...counts.values()].sort((a, b) => a.component.localeCompare(b.component) || a.role.localeCompare(b.role))
 }
 
 /** Parse `kubectl get pod -o=name` output into bare pod names. */
@@ -136,6 +215,39 @@ export class PodRunner {
 
   /** No-op; SSH calls are stateless. Provided for the `clearClients` contract. */
   async closeAll(): Promise<void> {}
+
+  /**
+   * Discover the component/role label values on every running pod in the
+   * connection's namespace — no selector applied. Used by `ssh servers discover`
+   * so users can see what `--component`/`--role` values are valid.
+   */
+  async discoverLabels(conn: ServerConnection): Promise<DiscoverLabelsResult> {
+    try {
+      const {stdout} = await this.sshRunner(buildDiscoverLabelsArgs(conn), this.timeoutMs)
+      const combos = parsePodLabels(stdout)
+      if (combos.length === 0) {
+        throw new Error(`No running pods found in namespace=${conn.namespace}.`)
+      }
+
+      const components = [...new Set(combos.map((c) => c.component))]
+      const roles = [...new Set(combos.map((c) => c.role))]
+      const lines = combos.map((c) => `  • component=${c.component} role=${c.role} — ${c.count} pod(s)`)
+      const result =
+        `Running pods in namespace '${conn.namespace}':\n\n${lines.join('\n')}\n\n` +
+        `Profile '${conn.profileName}' selects: component=${conn.component} role=${conn.role}`
+
+      return {
+        data: {combos, components, namespace: conn.namespace, result, roles},
+        success: true,
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return {
+        error: `ERROR: ${errorMessage}`,
+        success: false,
+      }
+    }
+  }
 
   /**
    * Execute a command in the first running pod.
