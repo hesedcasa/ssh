@@ -12,11 +12,18 @@ import type {Config} from '@oclif/core'
 import {createProfileManager} from '@hesed/plugin-lib'
 
 import {getServerConnectionOptions, type K8sConfig, type ServerConnection, type ServerProfile} from './config-loader.js'
-import {type ConnectionTestResult, type ExecResult, PodRunner} from './pod-runner.js'
+import {type ConnectionTestResult, type DiscoverLabelsResult, type ExecResult, PodRunner} from './pod-runner.js'
 
 export type {ServerConnection, ServerProfile} from './config-loader.js'
 
-export {type ConnectionTestResult, type ExecResult, type PodExecResult, type SshRunner} from './pod-runner.js'
+export {
+  type ConnectionTestResult,
+  type DiscoverLabelsResult,
+  type ExecResult,
+  type PodExecResult,
+  type PodLabelCombo,
+  type SshRunner,
+} from './pod-runner.js'
 
 /** File (relative to oclif `configDir`) that stores server profiles. */
 export const SERVER_CONFIG_FILE = 'ssh-servers.json'
@@ -136,6 +143,21 @@ export async function runTinker(
   all = false,
 ): Promise<ExecResult> {
   return runArtisan(config, `tinker --execute="${php}"`, profile, overrides, all)
+}
+
+/**
+ * Discover component/role label values on running pods in a profile's
+ * namespace (or an ad-hoc `namespace` override) — no pod selector applied,
+ * so it shows every valid `--component`/`--role` value, not just the
+ * profile's own. Used by `ssh servers discover`.
+ */
+export async function discoverPodLabels(
+  config: Config,
+  profile?: string,
+  namespace?: string,
+): Promise<DiscoverLabelsResult> {
+  const conn = await initConfig(config, profile)
+  return getRunner().discoverLabels(namespace ? {...conn, namespace} : conn)
 }
 
 /**
