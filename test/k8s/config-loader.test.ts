@@ -9,6 +9,7 @@ describe('k8s/config-loader', () => {
     defaultProfile: 'prod',
     profiles: {
       custom: {
+        allowedExecCommands: ['tail', 'grep'],
         artisanPrefix: 'php /app/artisan',
         bastionHost: 'bastion.example.com',
         blacklistedArtisanCommands: ['migrate', 'migrate:fresh --seed'],
@@ -55,6 +56,8 @@ describe('k8s/config-loader', () => {
       expect(conn.artisanPrefix).to.equal(DEFAULT_ARTISAN_PREFIX)
       // no blacklist configured on this profile
       expect(conn.blacklistedArtisanCommands).to.deep.equal([])
+      // no exec allowlist configured on this profile → empty (allow everything)
+      expect(conn.allowedExecCommands).to.deep.equal([])
     })
 
     it('preserves explicit overrides on a fully-specified profile', () => {
@@ -66,6 +69,7 @@ describe('k8s/config-loader', () => {
       expect(conn.artisanPrefix).to.equal('php /app/artisan')
       expect(conn.namespace).to.equal('sa-staging')
       expect(conn.blacklistedArtisanCommands).to.deep.equal(['migrate', 'migrate:fresh --seed'])
+      expect(conn.allowedExecCommands).to.deep.equal(['tail', 'grep'])
     })
 
     it('throws when the profile does not exist', () => {

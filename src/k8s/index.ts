@@ -172,19 +172,35 @@ export async function getArtisanBlacklist(config: Config, profile?: string): Pro
 }
 
 /**
- * Resolve a profile name (explicit or default) and read its current artisan
- * blacklist. Used by `ssh servers safety` to view/seed edits.
+ * Exec allowlist for a single profile; used by the `exec` command. An empty
+ * list means the allowlist is disabled and every command may run. Like
+ * `getArtisanBlacklist`, `profile` is threaded through so this resolves the
+ * same profile the caller is about to run against.
  */
-export async function getProfileBlacklist(
-  config: Config,
-  profile?: string,
-): Promise<{blacklist: string[]; profileName: string}> {
+export async function getExecAllowlist(config: Config, profile?: string): Promise<string[]> {
   const conn = await initConfig(config, profile)
-  return {blacklist: conn.blacklistedArtisanCommands, profileName: conn.profileName}
+  return conn.allowedExecCommands
 }
 
-/** Overwrite a profile's artisan blacklist on disk. Used by `ssh servers safety`. */
-export async function setProfileBlacklist(config: Config, profileName: string, blacklist: string[]): Promise<void> {
+type ProfileListField = 'allowedExecCommands' | 'blacklistedArtisanCommands'
+
+/** Read a single list field off a resolved profile connection, by field name. */
+async function getProfileListField(
+  config: Config,
+  profile: string | undefined,
+  field: ProfileListField,
+): Promise<{list: string[]; profileName: string}> {
+  const conn = await initConfig(config, profile)
+  return {list: conn[field], profileName: conn.profileName}
+}
+
+/** Overwrite a single list field on a profile on disk, by field name. */
+async function setProfileListField(
+  config: Config,
+  profileName: string,
+  field: ProfileListField,
+  list: string[],
+): Promise<void> {
   const pm = createProfileManager<ServerProfile>(config, undefined, SERVER_CONFIG_FILE)
   const profiles = await pm.readProfiles()
   const profile = profiles[profileName]
@@ -193,8 +209,42 @@ export async function setProfileBlacklist(config: Config, profileName: string, b
     throw new Error(`Profile "${profileName}" not found. Available profiles: ${availableProfiles}`)
   }
 
-  profiles[profileName] = {...profile, blacklistedArtisanCommands: blacklist}
+  profiles[profileName] = {...profile, [field]: list}
   await pm.saveProfiles(profiles)
+}
+
+/**
+ * Resolve a profile name (explicit or default) and read its current artisan
+ * blacklist. Used by `ssh servers safety` to view/seed edits.
+ */
+export async function getProfileBlacklist(
+  config: Config,
+  profile?: string,
+): Promise<{blacklist: string[]; profileName: string}> {
+  const {list, profileName} = await getProfileListField(config, profile, 'blacklistedArtisanCommands')
+  return {blacklist: list, profileName}
+}
+
+/** Overwrite a profile's artisan blacklist on disk. Used by `ssh servers safety`. */
+export async function setProfileBlacklist(config: Config, profileName: string, blacklist: string[]): Promise<void> {
+  await setProfileListField(config, profileName, 'blacklistedArtisanCommands', blacklist)
+}
+
+/**
+ * Resolve a profile name (explicit or default) and read its current exec
+ * allowlist. Used by `ssh servers safety` to view/seed edits.
+ */
+export async function getProfileExecAllowlist(
+  config: Config,
+  profile?: string,
+): Promise<{allowlist: string[]; profileName: string}> {
+  const {list, profileName} = await getProfileListField(config, profile, 'allowedExecCommands')
+  return {allowlist: list, profileName}
+}
+
+/** Overwrite a profile's exec allowlist on disk. Used by `ssh servers safety`. */
+export async function setProfileExecAllowlist(config: Config, profileName: string, allowlist: string[]): Promise<void> {
+  await setProfileListField(config, profileName, 'allowedExecCommands', allowlist)
 }
 
 /**
@@ -221,4 +271,10 @@ export async function closeConnections(): Promise<void> {
   }
 }
 
-export {checkArtisanBlacklist} from './safety.js'
+export {
+  applyListEdits,
+  checkCommandAllowlist,
+  checkCommandBlacklist,
+  formatCommandList,
+  type SafetyCheckResult,
+} from './safety.js'

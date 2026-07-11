@@ -2,9 +2,9 @@ import type {ApiResult} from '@hesed/plugin-lib'
 
 import {Args, Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../base-command.js'
-import {checkArtisanBlacklist, closeConnections, getArtisanBlacklist, runArtisan} from '../../k8s/index.js'
-import {ExecData} from '../../k8s/pod-runner.js'
+import {BaseCommand} from '../../../base-command.js'
+import {checkCommandBlacklist, closeConnections, getArtisanBlacklist, runArtisan} from '../../../k8s/index.js'
+import {ExecData} from '../../../k8s/pod-runner.js'
 
 export default class SshArtisan extends BaseCommand {
   static override args = {
@@ -13,8 +13,7 @@ export default class SshArtisan extends BaseCommand {
       required: true,
     }),
   }
-  static override description =
-    "Run a Laravel artisan command in a Kubernetes pod (blocked by the profile's artisan blacklist, if any — see `ssh servers safety`)"
+  static override description = 'Run a Laravel artisan command'
   static override enableJsonFlag = true
   static override examples = [
     '<%= config.bin %> <%= command.id %> cache:clear',
@@ -35,7 +34,7 @@ export default class SshArtisan extends BaseCommand {
 
     // Safety guard: block destructive migration commands before they reach a pod.
     const blacklist = await getArtisanBlacklist(this.config, flags.profile)
-    const check = checkArtisanBlacklist(args.command, blacklist)
+    const check = checkCommandBlacklist(args.command, blacklist, 'artisan')
     if (!check.allowed) {
       this.error(`${check.reason ?? 'Command blocked by safety rules.'}\n\nThis operation cannot be executed.`)
     }

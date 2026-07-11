@@ -15,6 +15,7 @@ import {
 } from '../../src/k8s/pod-runner.js'
 
 const conn: ServerConnection = {
+  allowedExecCommands: [],
   artisanPrefix: 'php artisan',
   bastionHost: 'bastion.example.com',
   blacklistedArtisanCommands: [],

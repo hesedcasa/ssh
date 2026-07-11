@@ -3,8 +3,8 @@ import {expect} from 'chai'
 import esmock from 'esmock'
 import {type SinonStub, stub} from 'sinon'
 
-describe('ssh:servers:safety', () => {
-  let SshServersSafety: any
+describe('ssh:artisan:block', () => {
+  let SshArtisanBlock: any
   let getProfileBlacklistStub: SinonStub
   let setProfileBlacklistStub: SinonStub
 
@@ -12,17 +12,17 @@ describe('ssh:servers:safety', () => {
     getProfileBlacklistStub = stub().resolves({blacklist: ['migrate', 'migrate:fresh'], profileName: 'prod'})
     setProfileBlacklistStub = stub().resolves()
 
-    const imported = await esmock('../../../../src/commands/ssh/servers/safety.js', {
+    const imported = await esmock('../../../../src/commands/ssh/artisan/block.js', {
       '../../../../src/k8s/index.js': {
         getProfileBlacklist: getProfileBlacklistStub,
         setProfileBlacklist: setProfileBlacklistStub,
       },
     })
-    SshServersSafety = imported.default
+    SshArtisanBlock = imported.default
   })
 
   function makeCmd(argv: string[]) {
-    const cmd = new SshServersSafety(argv, {
+    const cmd = new SshArtisanBlock(argv, {
       root: process.cwd(),
       runHook: stub().resolves({failures: [], successes: []}),
     } as any)

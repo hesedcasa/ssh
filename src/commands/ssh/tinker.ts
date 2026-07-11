@@ -9,12 +9,11 @@ import {ExecData} from '../../k8s/pod-runner.js'
 export default class SshTinker extends BaseCommand {
   static override args = {
     php: Args.string({
-      description: 'PHP code to execute via tinker (no escaping needed)',
+      description: 'PHP code to execute via tinker',
       required: true,
     }),
   }
-  static override description =
-    'Execute PHP code in a Kubernetes pod via `artisan tinker --execute` (no shell escaping needed)'
+  static override description = 'Execute PHP code in Laravel tinker'
   static override enableJsonFlag = true
   static override examples = [
     String.raw`<%= config.bin %> <%= command.id %> "App\\Models\\User::count()"`,

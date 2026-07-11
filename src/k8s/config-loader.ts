@@ -15,6 +15,12 @@
 export const DEFAULT_ARTISAN_PREFIX = 'php artisan'
 
 export interface ServerProfile {
+  /**
+   * Command prefixes (e.g. `tail`, `php artisan cache:clear`) that `ssh exec`
+   * is allowed to run against this profile. Empty/omitted means the allowlist
+   * is disabled and every command may run.
+   */
+  allowedExecCommands?: string[]
   /** Prefix prepended to artisan subcommands, e.g. `php artisan`. */
   artisanPrefix?: string
   /**
@@ -55,6 +61,8 @@ export interface K8sConfig {
  * re-apply defaults itself.
  */
 export interface ServerConnection {
+  /** Resolved exec allowlist for this profile; `[]` (allow everything) when none is configured. */
+  allowedExecCommands: string[]
   artisanPrefix: string
   /**
    * Bastion / jump host, or `undefined` when the profile has none — in that
@@ -87,6 +95,7 @@ export function getServerConnectionOptions(config: K8sConfig, profileName: strin
   }
 
   return {
+    allowedExecCommands: profile.allowedExecCommands ?? [],
     artisanPrefix: profile.artisanPrefix ?? DEFAULT_ARTISAN_PREFIX,
     bastionHost: profile.bastionHost,
     blacklistedArtisanCommands: profile.blacklistedArtisanCommands ?? [],
