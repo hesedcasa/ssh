@@ -8,6 +8,8 @@ describe('ssh:exec', () => {
   let execInPodStub: SinonStub
   let execInAllPodsStub: SinonStub
   let closeConnectionsStub: SinonStub
+  let getExecAllowlistStub: SinonStub
+  let checkExecAllowlistStub: SinonStub
 
   const mockResult = {
     data: {result: '/var/www\n', results: [{pod: 'api-1', stderr: '', stdout: '/var/www\n'}]},
@@ -18,12 +20,21 @@ describe('ssh:exec', () => {
     execInPodStub = stub().resolves(mockResult)
     execInAllPodsStub = stub().resolves(mockResult)
     closeConnectionsStub = stub().resolves()
+    // Default: empty allowlist (allowlist disabled — every command may run);
+    // individual tests override the resolved list.
+    getExecAllowlistStub = stub().resolves([])
+    // The real checkExecAllowlist is used by default so the allow/block logic
+    // is exercised through the command path too.
+    const {checkExecAllowlist} = await import('../../../src/k8s/safety.js')
+    checkExecAllowlistStub = stub().callsFake(checkExecAllowlist)
 
     const imported = await esmock('../../../src/commands/ssh/exec.js', {
       '../../../src/k8s/index.js': {
+        checkExecAllowlist: checkExecAllowlistStub,
         closeConnections: closeConnectionsStub,
         execInAllPods: execInAllPodsStub,
         execInPod: execInPodStub,
+        getExecAllowlist: getExecAllowlistStub,
       },
     })
     SshExec = imported.default
@@ -72,6 +83,44 @@ describe('ssh:exec', () => {
     const cmd = makeCmd(['pwd'])
     await cmd.run()
     expect(closeConnectionsStub.calledOnce).to.be.true
+  })
+
+  it('runs any command when the allowlist is empty', async () => {
+    const cmd = makeCmd(['rm -rf /tmp/cache'])
+    await cmd.run()
+
+    expect(getExecAllowlistStub.calledOnce).to.be.true
+    expect(checkExecAllowlistStub.calledOnce).to.be.true
+    expect(execInPodStub.calledOnce).to.be.true
+  })
+
+  it('runs a command matching an allowlist entry', async () => {
+    getExecAllowlistStub.resolves(['tail', 'grep'])
+    const cmd = makeCmd(['tail -20 storage/logs/laravel.log'])
+    await cmd.run()
+
+    expect(execInPodStub.calledOnce).to.be.true
+  })
+
+  it('blocks a command not in the allowlist before reaching the runner', async () => {
+    getExecAllowlistStub.resolves(['tail', 'grep'])
+    const cmd = makeCmd(['rm -rf /'])
+    try {
+      await cmd.run()
+      expect.fail('should have thrown')
+    } catch (error: any) {
+      expect(error.message).to.match(/allowlist/i)
+    }
+
+    expect(execInPodStub.called).to.be.false
+    expect(execInAllPodsStub.called).to.be.false
+  })
+
+  it('resolves the allowlist for the requested profile', async () => {
+    const cmd = makeCmd(['pwd', '-p', 'prod'])
+    await cmd.run()
+
+    expect(getExecAllowlistStub.firstCall.args[1]).to.equal('prod')
   })
 
   it('errors when the engine reports failure', async () => {

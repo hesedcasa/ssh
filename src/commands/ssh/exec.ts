@@ -3,7 +3,7 @@ import type {ApiResult} from '@hesed/plugin-lib'
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
-import {closeConnections, execInAllPods, execInPod} from '../../k8s/index.js'
+import {checkExecAllowlist, closeConnections, execInAllPods, execInPod, getExecAllowlist} from '../../k8s/index.js'
 import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshExec extends BaseCommand {
@@ -11,7 +11,7 @@ export default class SshExec extends BaseCommand {
     command: Args.string({description: 'Command to execute in the pod', required: true}),
   }
   static override description =
-    'Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod)'
+    "Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's exec allowlist when one is configured"
   static override enableJsonFlag = true
   static override examples = [
     '<%= config.bin %> <%= command.id %> pwd',
@@ -32,6 +32,14 @@ export default class SshExec extends BaseCommand {
 
   public async run(): Promise<ApiResult> {
     const {args, flags} = await this.parse(SshExec)
+
+    // Safety guard: when the profile configures `allowedExecCommands`, only
+    // commands matching one of those prefixes may run. Empty list = allow all.
+    const allowlist = await getExecAllowlist(this.config, flags.profile)
+    const check = checkExecAllowlist(args.command, allowlist)
+    if (!check.allowed) {
+      this.error(`${check.reason ?? 'Command blocked by safety rules.'}\n\nThis operation cannot be executed.`)
+    }
 
     const overrides = {
       component: flags.component,

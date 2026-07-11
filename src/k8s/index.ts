@@ -172,6 +172,17 @@ export async function getArtisanBlacklist(config: Config, profile?: string): Pro
 }
 
 /**
+ * Exec allowlist for a single profile; used by the `exec` command. An empty
+ * list means the allowlist is disabled and every command may run. Like
+ * `getArtisanBlacklist`, `profile` is threaded through so this resolves the
+ * same profile the caller is about to run against.
+ */
+export async function getExecAllowlist(config: Config, profile?: string): Promise<string[]> {
+  const conn = await initConfig(config, profile)
+  return conn.allowedExecCommands
+}
+
+/**
  * Resolve a profile name (explicit or default) and read its current artisan
  * blacklist. Used by `ssh servers safety` to view/seed edits.
  */
@@ -221,4 +232,4 @@ export async function closeConnections(): Promise<void> {
   }
 }
 
-export {checkArtisanBlacklist} from './safety.js'
+export {checkArtisanBlacklist, checkExecAllowlist} from './safety.js'

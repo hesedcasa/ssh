@@ -1,5 +1,5 @@
 /**
- * Safety guard for `ssh artisan`.
+ * Safety guards for `ssh artisan` and `ssh exec`.
  *
  * Migration commands are destructive operations that can cause data loss or
  * corruption; the original `pod-shell.sh` skill explicitly banned them. We keep
@@ -14,6 +14,11 @@
 interface BlacklistCheckResult {
   allowed: boolean
   blockedCommand?: string
+  reason?: string
+}
+
+interface AllowlistCheckResult {
+  allowed: boolean
   reason?: string
 }
 
@@ -56,4 +61,34 @@ export function checkArtisanBlacklist(command: string, blacklisted: string[]): B
   }
 
   return {allowed: true}
+}
+
+/**
+ * Check whether an exec command is allowed by a profile's exec allowlist.
+ *
+ * An empty (or omitted) allowlist disables the guard: every command may run.
+ * Otherwise the command must *start with* one of the allowlist entries,
+ * followed by end-of-string or a space — so an entry like `tail` matches
+ * `tail -20 log` but not `tailscale status`.
+ *
+ * @param command  the full shell command passed to `ssh exec`.
+ * @param allowed  command prefixes permitted for this profile, e.g. `['tail', 'grep']`.
+ */
+export function checkExecAllowlist(command: string, allowed: string[]): AllowlistCheckResult {
+  const entries = allowed.map((entry) => normalize(entry)).filter(Boolean)
+  if (entries.length === 0) {
+    return {allowed: true}
+  }
+
+  const normalizedCommand = normalize(command)
+  for (const entry of entries) {
+    if (normalizedCommand === entry || normalizedCommand.startsWith(`${entry} `)) {
+      return {allowed: true}
+    }
+  }
+
+  return {
+    allowed: false,
+    reason: `Command is not in the profile's exec allowlist. Allowed command prefixes: ${allowed.join(', ')}.`,
+  }
 }

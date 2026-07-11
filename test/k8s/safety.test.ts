@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {checkArtisanBlacklist} from '../../src/k8s/safety.js'
+import {checkArtisanBlacklist, checkExecAllowlist} from '../../src/k8s/safety.js'
 
 describe('k8s:safety', () => {
   // Representative blacklist a profile might configure via `ssh servers
@@ -76,6 +76,51 @@ describe('k8s:safety', () => {
     it('respects a custom blacklist', () => {
       expect(checkArtisanBlacklist('cache:clear', ['cache:clear']).allowed).to.be.false
       expect(checkArtisanBlacklist('migrate', []).allowed).to.be.true
+    })
+  })
+
+  describe('checkExecAllowlist', () => {
+    // Representative allowlist a profile might configure; an empty list
+    // disables the guard entirely.
+    const allowlist = ['tail', 'grep', 'php artisan cache:clear']
+
+    it('allows every command when the allowlist is empty', () => {
+      expect(checkExecAllowlist('rm -rf /', []).allowed).to.be.true
+      expect(checkExecAllowlist('pwd', []).allowed).to.be.true
+    })
+
+    it('allows an exact match', () => {
+      expect(checkExecAllowlist('tail', allowlist).allowed).to.be.true
+    })
+
+    it('allows a command starting with an allowed prefix', () => {
+      expect(checkExecAllowlist('tail -20 storage/logs/laravel.log', allowlist).allowed).to.be.true
+      expect(checkExecAllowlist('grep ERROR storage/logs/laravel.log', allowlist).allowed).to.be.true
+    })
+
+    it('allows a multi-token entry to match with extra arguments', () => {
+      expect(checkExecAllowlist('php artisan cache:clear --quiet', allowlist).allowed).to.be.true
+    })
+
+    it('blocks a command not covered by any entry, with a reason', () => {
+      const result = checkExecAllowlist('rm -rf /', allowlist)
+      expect(result.allowed).to.be.false
+      expect(result.reason).to.match(/allowlist/i)
+      expect(result.reason).to.include('tail')
+    })
+
+    it('does not false-positive on commands that merely share a token prefix', () => {
+      expect(checkExecAllowlist('tailscale status', allowlist).allowed).to.be.false
+      expect(checkExecAllowlist('grepx foo', allowlist).allowed).to.be.false
+    })
+
+    it('matches case-insensitively and ignores extra whitespace', () => {
+      expect(checkExecAllowlist('  TAIL   -20   log  ', allowlist).allowed).to.be.true
+    })
+
+    it('ignores blank allowlist entries (all-blank list allows everything)', () => {
+      expect(checkExecAllowlist('rm -rf /', ['', '   ']).allowed).to.be.true
+      expect(checkExecAllowlist('tail -1 log', ['', 'tail']).allowed).to.be.true
     })
   })
 })

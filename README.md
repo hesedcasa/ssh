@@ -72,6 +72,22 @@ ssh ssh tinker "App\\Models\\User::count()" -p prod
 > ssh ssh servers safety -p prod  # view the current blacklist
 > ```
 
+> **Exec allowlist:** `ssh exec` runs any command by default. To restrict a
+> profile, set `allowedExecCommands` on it in `ssh-servers.json` — a list of
+> command prefixes `ssh exec` may run (e.g. `["tail", "grep"]`). When the list
+> is empty or omitted, the allowlist is disabled and every command may run.
+>
+> ```jsonc
+> // ssh-servers.json
+> {
+>   "profiles": {
+>     "prod": {
+>       "allowedExecCommands": ["tail", "grep", "php artisan cache:clear"]
+>     }
+>   }
+> }
+> ```
+
 # Usage
 
 <!-- usage -->
@@ -142,7 +158,7 @@ _See code: [src/commands/ssh/artisan.ts](https://github.com/hesedcasa/ssh/blob/v
 
 ## `ssh ssh exec COMMAND`
 
-Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod)
+Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's exec allowlist when one is configured
 
 ```
 USAGE
@@ -164,7 +180,8 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod)
+  Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's
+  exec allowlist when one is configured
 
 EXAMPLES
   $ ssh ssh exec pwd
