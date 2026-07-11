@@ -112,6 +112,27 @@ function wrapForHops(conn: ServerConnection, remoteCommand: string): string[] {
 }
 
 /**
+ * Kubernetes namespace/label/container names are DNS-1123-ish: letters,
+ * digits, `-`, `_`, `.`. Nothing in that set can break out of the remote
+ * shell string these values are interpolated into below.
+ */
+const SAFE_K8S_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/
+
+/**
+ * Reject any `ServerConnection` field — whether it came from a stored profile
+ * or a CLI override like `--namespace`/`--component` — before it is
+ * interpolated into a remote shell command. Without this, a value such as
+ * `sa-test; rm -rf /` would terminate the intended `kubectl` argument and run
+ * an attacker-controlled command on the SSH target (or bastion) instead of
+ * merely failing to match a namespace.
+ */
+function assertSafeK8sValue(value: string, field: string): void {
+  if (!SAFE_K8S_NAME.test(value)) {
+    throw new Error(`Invalid ${field} "${value}": only letters, numbers, "-", "_", and "." are allowed.`)
+  }
+}
+
+/**
  * Build the remote `kubectl exec` invocation for a single pod.
  *
  * The inner command is base64-encoded and decoded on the remote host so any
@@ -119,6 +140,8 @@ function wrapForHops(conn: ServerConnection, remoteCommand: string): string[] {
  * untouched — the same technique the original bash script used.
  */
 export function buildPodExecArgs(conn: ServerConnection, pod: string, command: string): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
+  assertSafeK8sValue(conn.container, 'container')
   const encoded = Buffer.from(command).toString('base64')
   // `$(` and `$CMD` are not `${}` interpolations, so they stay literal here —
   // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
@@ -128,6 +151,9 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
 
 /** Build the remote `kubectl get pod` invocation used to discover pods. */
 export function buildListPodsArgs(conn: ServerConnection): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
+  assertSafeK8sValue(conn.component, 'component')
+  assertSafeK8sValue(conn.role, 'role')
   // --field-selector=status.phase=Running restricts to running pods; -o=name
   // yields `pod/<name>` lines, which we strip below.
   // Both labels must live in ONE -l flag: kubectl's --selector is a plain
@@ -141,6 +167,7 @@ export function buildListPodsArgs(conn: ServerConnection): string[] {
  * every running pod in the namespace with its component/role label values.
  */
 export function buildDiscoverLabelsArgs(conn: ServerConnection): string[] {
+  assertSafeK8sValue(conn.namespace, 'namespace')
   const columns = 'NAME:.metadata.name,COMPONENT:.metadata.labels.component,ROLE:.metadata.labels.role'
   const remoteCommand = `sudo kubectl -n ${conn.namespace} get pod -o custom-columns=${columns} --no-headers --field-selector=status.phase=Running`
   return wrapForHops(conn, remoteCommand)

