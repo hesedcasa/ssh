@@ -8,7 +8,7 @@ describe('ssh:artisan', () => {
   let runArtisanStub: SinonStub
   let closeConnectionsStub: SinonStub
   let getArtisanBlacklistStub: SinonStub
-  let checkArtisanBlacklistStub: SinonStub
+  let checkCommandBlacklistStub: SinonStub
 
   const mockResult = {
     data: {result: 'Cache cleared successfully.\n'},
@@ -20,14 +20,14 @@ describe('ssh:artisan', () => {
     closeConnectionsStub = stub().resolves()
     // Default: allow everything; individual tests override the impl.
     getArtisanBlacklistStub = stub().resolves(['migrate', 'migrate:fresh --seed'])
-    // The real checkArtisanBlacklist is used by default so the allow/block
+    // The real checkCommandBlacklist is used by default so the allow/block
     // logic is exercised through the command path too.
-    const {checkArtisanBlacklist} = await import('../../../src/k8s/safety.js')
-    checkArtisanBlacklistStub = stub().callsFake(checkArtisanBlacklist)
+    const {checkCommandBlacklist} = await import('../../../src/k8s/safety.js')
+    checkCommandBlacklistStub = stub().callsFake(checkCommandBlacklist)
 
     const imported = await esmock('../../../src/commands/ssh/artisan.js', {
       '../../../src/k8s/index.js': {
-        checkArtisanBlacklist: checkArtisanBlacklistStub,
+        checkCommandBlacklist: checkCommandBlacklistStub,
         closeConnections: closeConnectionsStub,
         getArtisanBlacklist: getArtisanBlacklistStub,
         runArtisan: runArtisanStub,
@@ -50,7 +50,7 @@ describe('ssh:artisan', () => {
     await cmd.run()
 
     expect(getArtisanBlacklistStub.calledOnce).to.be.true
-    expect(checkArtisanBlacklistStub.calledOnce).to.be.true
+    expect(checkCommandBlacklistStub.calledOnce).to.be.true
     // (config, subcommand, profile, overrides, all)
     const {args} = runArtisanStub.firstCall
     expect(args[1]).to.equal('cache:clear') // subcommand

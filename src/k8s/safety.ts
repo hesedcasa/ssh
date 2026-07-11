@@ -1,24 +1,30 @@
 /**
- * Safety guards for `ssh artisan` and `ssh exec`.
+ * Safety guards for commands that run inside a pod.
  *
- * Migration commands are destructive operations that can cause data loss or
- * corruption; the original `pod-shell.sh` skill explicitly banned them. We keep
- * that contract here by blocking them before any command reaches a pod.
+ * Two complementary, command-agnostic checks share one prefix matcher:
  *
- * Matching is by the artisan subcommand token (the first whitespace-delimited
- * segment of the command), so e.g. `migrate:status` is blocked but a harmless
- * flag like `--path=migrations` is not. A blacklist entry may itself contain
- * spaces (e.g. `migrate:fresh --seed`) to match multi-token subcommands.
+ * - {@link checkCommandBlacklist} — deny-list: block a command matching any
+ *   entry. Used by `ssh artisan` to keep destructive migrations out of pods
+ *   (the contract inherited from the original `pod-shell.sh` skill).
+ * - {@link checkCommandAllowlist} — allow-list: only run a command matching an
+ *   entry; an empty list disables the guard entirely. Used by `ssh exec`.
+ *
+ * Neither knows anything about artisan or exec specifically — the
+ * `commandKind` label ('artisan', 'exec', 'tinker', …) only shapes the
+ * human-readable reason, so future commands can reuse these guards without
+ * touching the matching logic.
+ *
+ * Matching is by whitespace/`:`-delimited prefix: a blacklist entry `migrate`
+ * blocks `migrate`, `migrate:status`, and `migrate:fresh --seed` but not
+ * `migratelog`; an allowlist entry `tail` permits `tail -20 log` but not
+ * `tailscale status`. An entry may itself contain spaces (e.g.
+ * `migrate:fresh --seed`) to match multi-token commands.
  */
 
-interface BlacklistCheckResult {
+export interface SafetyCheckResult {
   allowed: boolean
+  /** The list entry that blocked the command (blacklist checks only). */
   blockedCommand?: string
-  reason?: string
-}
-
-interface AllowlistCheckResult {
-  allowed: boolean
   reason?: string
 }
 
@@ -32,30 +38,36 @@ function normalize(cmd: string): string {
 }
 
 /**
- * Check whether an artisan subcommand is allowed.
- *
- * @param command      the artisan argument (everything after `php artisan`),
- *                     e.g. `migrate:status` or `cache:clear`.
- * @param blacklisted  subcommand prefixes to block, e.g. `['migrate', ...]`.
+ * True when `command` *starts with* `entry` followed by end-of-string or a
+ * word boundary (space or `:`). Both arguments must already be normalized.
  */
-export function checkArtisanBlacklist(command: string, blacklisted: string[]): BlacklistCheckResult {
+function matchesEntry(command: string, entry: string): boolean {
+  return command === entry || command.startsWith(`${entry} `) || command.startsWith(`${entry}:`)
+}
+
+/**
+ * Check a command against a deny-list. Blank entries are ignored; an empty
+ * list blocks nothing.
+ *
+ * @param command      the command as the user typed it (e.g. the artisan
+ *                     argument `migrate:status`, or a full shell command).
+ * @param blacklisted  command prefixes to block, e.g. `['migrate', ...]`.
+ * @param commandKind  label for the reason message, e.g. `artisan`.
+ */
+export function checkCommandBlacklist(
+  command: string,
+  blacklisted: string[],
+  commandKind = 'command',
+): SafetyCheckResult {
   const normalizedCommand = normalize(command)
 
   for (const raw of blacklisted) {
     const entry = normalize(raw)
-    // Block if the command *starts with* the blacklist entry followed by either
-    // end-of-string or a word boundary (`:`, space). This stops `migrate` from
-    // matching `migratelog` while still matching `migrate`, `migrate:status`,
-    // and `migrate:fresh --seed`.
-    if (
-      normalizedCommand === entry ||
-      normalizedCommand.startsWith(`${entry} `) ||
-      normalizedCommand.startsWith(`${entry}:`)
-    ) {
+    if (entry && matchesEntry(normalizedCommand, entry)) {
       return {
         allowed: false,
         blockedCommand: raw,
-        reason: `Artisan command "${raw}" is blacklisted: migrations are destructive and require explicit review, approval, and backups.`,
+        reason: `The ${commandKind} command "${raw}" is blacklisted for this profile: it is considered destructive and requires explicit review, approval, and backups.`,
       }
     }
   }
@@ -64,31 +76,27 @@ export function checkArtisanBlacklist(command: string, blacklisted: string[]): B
 }
 
 /**
- * Check whether an exec command is allowed by a profile's exec allowlist.
+ * Check a command against an allow-list. An empty (or all-blank) list disables
+ * the guard: every command may run. Otherwise the command must match one of
+ * the entries.
  *
- * An empty (or omitted) allowlist disables the guard: every command may run.
- * Otherwise the command must *start with* one of the allowlist entries,
- * followed by end-of-string or a space — so an entry like `tail` matches
- * `tail -20 log` but not `tailscale status`.
- *
- * @param command  the full shell command passed to `ssh exec`.
- * @param allowed  command prefixes permitted for this profile, e.g. `['tail', 'grep']`.
+ * @param command      the command as the user typed it.
+ * @param allowed      command prefixes permitted, e.g. `['tail', 'grep']`.
+ * @param commandKind  label for the reason message, e.g. `exec`.
  */
-export function checkExecAllowlist(command: string, allowed: string[]): AllowlistCheckResult {
+export function checkCommandAllowlist(command: string, allowed: string[], commandKind = 'command'): SafetyCheckResult {
   const entries = allowed.map((entry) => normalize(entry)).filter(Boolean)
   if (entries.length === 0) {
     return {allowed: true}
   }
 
   const normalizedCommand = normalize(command)
-  for (const entry of entries) {
-    if (normalizedCommand === entry || normalizedCommand.startsWith(`${entry} `)) {
-      return {allowed: true}
-    }
+  if (entries.some((entry) => matchesEntry(normalizedCommand, entry))) {
+    return {allowed: true}
   }
 
   return {
     allowed: false,
-    reason: `Command is not in the profile's exec allowlist. Allowed command prefixes: ${allowed.join(', ')}.`,
+    reason: `Command is not in the profile's ${commandKind} allowlist. Allowed command prefixes: ${allowed.join(', ')}.`,
   }
 }

@@ -3,19 +3,18 @@ import type {ApiResult} from '@hesed/plugin-lib'
 import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
-import {checkExecAllowlist, closeConnections, execInAllPods, execInPod, getExecAllowlist} from '../../k8s/index.js'
+import {checkCommandAllowlist, closeConnections, execInAllPods, execInPod, getExecAllowlist} from '../../k8s/index.js'
 import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshExec extends BaseCommand {
   static override args = {
-    command: Args.string({description: 'Command to execute in the pod', required: true}),
+    command: Args.string({description: 'Command to execute', required: true}),
   }
-  static override description =
-    "Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's exec allowlist when one is configured"
+  static override description = 'Execute a bash command'
   static override enableJsonFlag = true
   static override examples = [
     '<%= config.bin %> <%= command.id %> pwd',
-    '<%= config.bin %> <%= command.id %> "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" --all -p prod',
+    '<%= config.bin %> <%= command.id %> "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" --all',
     '<%= config.bin %> <%= command.id %> "grep ERROR storage/logs/laravel.log" --namespace sa-testqa',
   ]
   static override flags = {
@@ -36,7 +35,7 @@ export default class SshExec extends BaseCommand {
     // Safety guard: when the profile configures `allowedExecCommands`, only
     // commands matching one of those prefixes may run. Empty list = allow all.
     const allowlist = await getExecAllowlist(this.config, flags.profile)
-    const check = checkExecAllowlist(args.command, allowlist)
+    const check = checkCommandAllowlist(args.command, allowlist, 'exec')
     if (!check.allowed) {
       this.error(`${check.reason ?? 'Command blocked by safety rules.'}\n\nThis operation cannot be executed.`)
     }

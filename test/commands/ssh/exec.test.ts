@@ -9,7 +9,7 @@ describe('ssh:exec', () => {
   let execInAllPodsStub: SinonStub
   let closeConnectionsStub: SinonStub
   let getExecAllowlistStub: SinonStub
-  let checkExecAllowlistStub: SinonStub
+  let checkCommandAllowlistStub: SinonStub
 
   const mockResult = {
     data: {result: '/var/www\n', results: [{pod: 'api-1', stderr: '', stdout: '/var/www\n'}]},
@@ -23,14 +23,14 @@ describe('ssh:exec', () => {
     // Default: empty allowlist (allowlist disabled — every command may run);
     // individual tests override the resolved list.
     getExecAllowlistStub = stub().resolves([])
-    // The real checkExecAllowlist is used by default so the allow/block logic
+    // The real checkCommandAllowlist is used by default so the allow/block logic
     // is exercised through the command path too.
-    const {checkExecAllowlist} = await import('../../../src/k8s/safety.js')
-    checkExecAllowlistStub = stub().callsFake(checkExecAllowlist)
+    const {checkCommandAllowlist} = await import('../../../src/k8s/safety.js')
+    checkCommandAllowlistStub = stub().callsFake(checkCommandAllowlist)
 
     const imported = await esmock('../../../src/commands/ssh/exec.js', {
       '../../../src/k8s/index.js': {
-        checkExecAllowlist: checkExecAllowlistStub,
+        checkCommandAllowlist: checkCommandAllowlistStub,
         closeConnections: closeConnectionsStub,
         execInAllPods: execInAllPodsStub,
         execInPod: execInPodStub,
@@ -90,7 +90,7 @@ describe('ssh:exec', () => {
     await cmd.run()
 
     expect(getExecAllowlistStub.calledOnce).to.be.true
-    expect(checkExecAllowlistStub.calledOnce).to.be.true
+    expect(checkCommandAllowlistStub.calledOnce).to.be.true
     expect(execInPodStub.calledOnce).to.be.true
   })
 

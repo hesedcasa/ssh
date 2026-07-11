@@ -232,4 +232,4 @@ export async function closeConnections(): Promise<void> {
   }
 }
 
-export {checkArtisanBlacklist, checkExecAllowlist} from './safety.js'
+export {checkCommandAllowlist, checkCommandBlacklist, type SafetyCheckResult} from './safety.js'
