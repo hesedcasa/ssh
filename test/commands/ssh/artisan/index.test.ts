@@ -22,11 +22,11 @@ describe('ssh:artisan', () => {
     getArtisanBlacklistStub = stub().resolves(['migrate', 'migrate:fresh --seed'])
     // The real checkCommandBlacklist is used by default so the allow/block
     // logic is exercised through the command path too.
-    const {checkCommandBlacklist} = await import('../../../src/k8s/safety.js')
+    const {checkCommandBlacklist} = await import('../../../../src/k8s/safety.js')
     checkCommandBlacklistStub = stub().callsFake(checkCommandBlacklist)
 
-    const imported = await esmock('../../../src/commands/ssh/artisan.js', {
-      '../../../src/k8s/index.js': {
+    const imported = await esmock('../../../../src/commands/ssh/artisan/index.js', {
+      '../../../../src/k8s/index.js': {
         checkCommandBlacklist: checkCommandBlacklistStub,
         closeConnections: closeConnectionsStub,
         getArtisanBlacklist: getArtisanBlacklistStub,

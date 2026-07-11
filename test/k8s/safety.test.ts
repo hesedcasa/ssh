@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {checkCommandAllowlist, checkCommandBlacklist} from '../../src/k8s/safety.js'
+import {applyListEdits, checkCommandAllowlist, checkCommandBlacklist, formatCommandList} from '../../src/k8s/safety.js'
 
 describe('k8s:safety', () => {
   // Representative blacklist a profile might configure via `ssh servers
@@ -88,6 +88,29 @@ describe('k8s:safety', () => {
       // Defaults to a generic label when no kind is given.
       expect(checkCommandBlacklist('migrate', blacklist).reason).to.include('command "migrate"')
     })
+
+    it('blocks a blacklisted command smuggled in as one link of a chain', () => {
+      expect(checkCommandBlacklist('cache:clear && migrate', blacklist).allowed).to.be.false
+      expect(checkCommandBlacklist('cache:clear; migrate', blacklist).allowed).to.be.false
+      expect(checkCommandBlacklist('cache:clear | migrate', blacklist).allowed).to.be.false
+      expect(checkCommandBlacklist('cache:clear `migrate`', blacklist).allowed).to.be.false
+      expect(checkCommandBlacklist('cache:clear $(migrate)', blacklist).allowed).to.be.false
+      expect(checkCommandBlacklist('cache:clear\nmigrate', blacklist).allowed).to.be.false
+    })
+
+    it('allows a chain of safe commands when nothing in it is blacklisted', () => {
+      expect(checkCommandBlacklist('cache:clear && route:list', blacklist).allowed).to.be.true
+      expect(checkCommandBlacklist('cache:clear; route:list', blacklist).allowed).to.be.true
+    })
+
+    it('rejects redirection outright even when nothing in the chain is blacklisted', () => {
+      expect(checkCommandBlacklist('cache:clear > /etc/passwd', blacklist).allowed).to.be.false
+    })
+
+    it('allows chaining and redirection when the blacklist is empty (guard disabled)', () => {
+      expect(checkCommandBlacklist('cache:clear && migrate', []).allowed).to.be.true
+      expect(checkCommandBlacklist('cache:clear > /etc/passwd', []).allowed).to.be.true
+    })
   })
 
   describe('checkCommandAllowlist', () => {
@@ -117,7 +140,7 @@ describe('k8s:safety', () => {
       const result = checkCommandAllowlist('rm -rf /', allowlist)
       expect(result.allowed).to.be.false
       expect(result.reason).to.match(/allowlist/i)
-      expect(result.reason).to.include('tail')
+      expect(result.reason).to.include('rm -rf /')
     })
 
     it('does not false-positive on commands that merely share a token prefix', () => {
@@ -137,6 +160,70 @@ describe('k8s:safety', () => {
     it('labels the reason with the given command kind', () => {
       expect(checkCommandAllowlist('rm -rf /', allowlist, 'exec').reason).to.include('exec allowlist')
       expect(checkCommandAllowlist('rm -rf /', allowlist, 'tinker').reason).to.include('tinker allowlist')
+    })
+
+    it('blocks a chained/substituted command when any link is not allowlisted', () => {
+      expect(checkCommandAllowlist('tail -1 log && rm -rf /', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log; rm -rf /', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log | tee /etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail `id`', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail $(id)', allowlist).allowed).to.be.false
+    })
+
+    it('treats a bare newline as a command separator, same as ;', () => {
+      expect(checkCommandAllowlist('tail -1 log\nrm -rf /', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log\r\nrm -rf /', allowlist).allowed).to.be.false
+    })
+
+    it('rejects redirection outright, since there is no command to check', () => {
+      expect(checkCommandAllowlist('tail -1 log > /etc/passwd', allowlist).allowed).to.be.false
+    })
+
+    it('allows a chain where every link matches the allowlist', () => {
+      expect(checkCommandAllowlist('tail -1 log && grep ERROR log', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('tail -1 log; grep ERROR log', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('grep ERROR log | tail -20', allowlist).allowed).to.be.true
+    })
+
+    it('does not split on chain-looking characters inside quotes', () => {
+      expect(checkCommandAllowlist('grep "a && b" file', allowlist).allowed).to.be.true
+    })
+
+    it('ignores a trailing separator with nothing after it', () => {
+      expect(checkCommandAllowlist('tail -1 log;', allowlist).allowed).to.be.true
+    })
+
+    it('allows chaining and redirection when the allowlist is empty (guard disabled)', () => {
+      expect(checkCommandAllowlist('pwd && whoami', []).allowed).to.be.true
+      expect(checkCommandAllowlist('pwd > /etc/passwd', []).allowed).to.be.true
+    })
+  })
+
+  describe('formatCommandList', () => {
+    it('bullets each entry', () => {
+      expect(formatCommandList(['migrate', 'migrate:fresh'], 'empty')).to.equal('  • migrate\n  • migrate:fresh')
+    })
+
+    it('falls back to the empty message for an empty list', () => {
+      expect(formatCommandList([], 'nothing blocked')).to.equal('  nothing blocked')
+    })
+  })
+
+  describe('applyListEdits', () => {
+    it('adds new entries without duplicating existing ones (case-insensitive)', () => {
+      expect(applyListEdits(['migrate'], ['MIGRATE', 'migrate:fresh'])).to.deep.equal(['migrate', 'migrate:fresh'])
+    })
+
+    it('removes entries case-insensitively', () => {
+      expect(applyListEdits(['migrate', 'migrate:fresh'], undefined, ['MIGRATE:FRESH'])).to.deep.equal(['migrate'])
+    })
+
+    it('clears the list', () => {
+      expect(applyListEdits(['migrate'], undefined, undefined, true)).to.deep.equal([])
+    })
+
+    it('applies clear before remove and add, so clear+add replaces the list', () => {
+      expect(applyListEdits(['migrate'], ['db:wipe'], undefined, true)).to.deep.equal(['db:wipe'])
     })
   })
 })

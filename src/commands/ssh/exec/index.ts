@@ -2,9 +2,15 @@ import type {ApiResult} from '@hesed/plugin-lib'
 
 import {Args, Flags} from '@oclif/core'
 
-import {BaseCommand} from '../../base-command.js'
-import {checkCommandAllowlist, closeConnections, execInAllPods, execInPod, getExecAllowlist} from '../../k8s/index.js'
-import {ExecData} from '../../k8s/pod-runner.js'
+import {BaseCommand} from '../../../base-command.js'
+import {
+  checkCommandAllowlist,
+  closeConnections,
+  execInAllPods,
+  execInPod,
+  getExecAllowlist,
+} from '../../../k8s/index.js'
+import {ExecData} from '../../../k8s/pod-runner.js'
 
 export default class SshExec extends BaseCommand {
   static override args = {

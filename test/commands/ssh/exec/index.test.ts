@@ -25,11 +25,11 @@ describe('ssh:exec', () => {
     getExecAllowlistStub = stub().resolves([])
     // The real checkCommandAllowlist is used by default so the allow/block logic
     // is exercised through the command path too.
-    const {checkCommandAllowlist} = await import('../../../src/k8s/safety.js')
+    const {checkCommandAllowlist} = await import('../../../../src/k8s/safety.js')
     checkCommandAllowlistStub = stub().callsFake(checkCommandAllowlist)
 
-    const imported = await esmock('../../../src/commands/ssh/exec.js', {
-      '../../../src/k8s/index.js': {
+    const imported = await esmock('../../../../src/commands/ssh/exec/index.js', {
+      '../../../../src/k8s/index.js': {
         checkCommandAllowlist: checkCommandAllowlistStub,
         closeConnections: closeConnectionsStub,
         execInAllPods: execInAllPodsStub,

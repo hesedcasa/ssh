@@ -65,28 +65,22 @@ ssh ssh tinker "App\\Models\\User::count()" -p prod
 > it). Migrations are destructive, so lock them down per profile:
 >
 > ```bash
-> ssh ssh servers safety -p prod --add migrate --add migrate:fresh \
+> ssh ssh artisan block -p prod --add migrate --add migrate:fresh \
 >   --add "migrate:fresh --seed" --add migrate:rollback --add migrate:reset \
 >   --add migrate:refresh --add migrate:install --add migrate:status \
 >   --add migrate:change
-> ssh ssh servers safety -p prod  # view the current blacklist
+> ssh ssh artisan block -p prod  # view the current blacklist
 > ```
 
 > **Exec allowlist:** `ssh exec` runs any command by default. To restrict a
-> profile, set `allowedExecCommands` on it in `ssh-servers.json` — a list of
-> command prefixes `ssh exec` may run (e.g. `["tail", "grep"]`). When the list
-> is empty or omitted, the allowlist is disabled and every command may run.
+> profile to a set of command prefixes, use `ssh exec allow`:
 >
-> ```jsonc
-> // ssh-servers.json
-> {
->   "profiles": {
->     "prod": {
->       "allowedExecCommands": ["tail", "grep", "php artisan cache:clear"]
->     }
->   }
-> }
+> ```bash
+> ssh ssh exec allow -p prod --add tail --add grep --add "php artisan cache:clear"
+> ssh ssh exec allow -p prod  # view the current allowlist
 > ```
+>
+> An empty (or unset) allowlist disables the guard — every command may run.
 
 # Usage
 
@@ -96,7 +90,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.4.0 linux-x64 node-v22.23.1
+@hesed/ssh/0.4.0 darwin-arm64 node-v22.22.3
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -108,20 +102,21 @@ USAGE
 
 <!-- commands -->
 * [`ssh ssh artisan COMMAND`](#ssh-ssh-artisan-command)
+* [`ssh ssh artisan block`](#ssh-ssh-artisan-block)
 * [`ssh ssh exec COMMAND`](#ssh-ssh-exec-command)
+* [`ssh ssh exec allow`](#ssh-ssh-exec-allow)
 * [`ssh ssh servers add`](#ssh-ssh-servers-add)
 * [`ssh ssh servers delete`](#ssh-ssh-servers-delete)
 * [`ssh ssh servers discover`](#ssh-ssh-servers-discover)
 * [`ssh ssh servers list`](#ssh-ssh-servers-list)
 * [`ssh ssh servers profile`](#ssh-ssh-servers-profile)
-* [`ssh ssh servers safety`](#ssh-ssh-servers-safety)
 * [`ssh ssh servers test`](#ssh-ssh-servers-test)
 * [`ssh ssh servers update`](#ssh-ssh-servers-update)
 * [`ssh ssh tinker PHP`](#ssh-ssh-tinker-php)
 
 ## `ssh ssh artisan COMMAND`
 
-Run a Laravel artisan command in a Kubernetes pod (blocked by the profile's artisan blacklist, if any — see `ssh servers safety`)
+Run a Laravel artisan command
 
 ```
 USAGE
@@ -143,8 +138,7 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Run a Laravel artisan command in a Kubernetes pod (blocked by the profile's artisan blacklist, if any — see `ssh
-  servers safety`)
+  Run a Laravel artisan command
 
 EXAMPLES
   $ ssh ssh artisan cache:clear
@@ -154,11 +148,45 @@ EXAMPLES
   $ ssh ssh artisan queue:restart --namespace sa-testqa
 ```
 
-_See code: [src/commands/ssh/artisan.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/artisan.ts)_
+_See code: [src/commands/ssh/artisan/index.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/artisan/index.ts)_
+
+## `ssh ssh artisan block`
+
+View or edit a server profile's artisan blacklist
+
+```
+USAGE
+  $ ssh ssh artisan block [--json] [--add <value>...] [--clear] [-p <value>] [--remove <value>...]
+
+FLAGS
+  -p, --profile=<value>    SSH server profile name from config
+      --add=<value>...     Add a command prefix to the blacklist (repeatable)
+      --clear              Remove every entry from the profile's blacklist
+      --remove=<value>...  Remove a command prefix from the blacklist (repeatable)
+
+GLOBAL FLAGS
+  --json  Format output as json.
+
+DESCRIPTION
+  View or edit a server profile's artisan blacklist
+
+EXAMPLES
+  $ ssh ssh artisan block
+
+  $ ssh ssh artisan block -p prod
+
+  $ ssh ssh artisan block -p prod --add migrate --add migrate:fresh
+
+  $ ssh ssh artisan block -p prod --remove migrate:fresh
+
+  $ ssh ssh artisan block -p prod --clear
+```
+
+_See code: [src/commands/ssh/artisan/block.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/artisan/block.ts)_
 
 ## `ssh ssh exec COMMAND`
 
-Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's exec allowlist when one is configured
+Execute a bash command
 
 ```
 USAGE
@@ -166,7 +194,7 @@ USAGE
     [-p <value>] [--role <value>]
 
 ARGUMENTS
-  COMMAND  Command to execute in the pod
+  COMMAND  Command to execute
 
 FLAGS
   -p, --profile=<value>    SSH server profile name from config
@@ -180,18 +208,52 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Execute a bash command in a Kubernetes pod via SSH (local → bastion → kubectl host → pod); restricted to the profile's
-  exec allowlist when one is configured
+  Execute a bash command
 
 EXAMPLES
   $ ssh ssh exec pwd
 
-  $ ssh ssh exec "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" --all -p prod
+  $ ssh ssh exec "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" --all
 
   $ ssh ssh exec "grep ERROR storage/logs/laravel.log" --namespace sa-testqa
 ```
 
-_See code: [src/commands/ssh/exec.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/exec.ts)_
+_See code: [src/commands/ssh/exec/index.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/exec/index.ts)_
+
+## `ssh ssh exec allow`
+
+View or edit a server profile's exec allowlist — when set, `ssh exec` may only run commands matching one of these prefixes
+
+```
+USAGE
+  $ ssh ssh exec allow [--json] [--add <value>...] [--clear] [-p <value>] [--remove <value>...]
+
+FLAGS
+  -p, --profile=<value>    SSH server profile name from config
+      --add=<value>...     Add a command prefix to the allowlist (repeatable)
+      --clear              Remove every entry from the profile's allowlist
+      --remove=<value>...  Remove a command prefix from the allowlist (repeatable)
+
+GLOBAL FLAGS
+  --json  Format output as json.
+
+DESCRIPTION
+  View or edit a server profile's exec allowlist — when set, `ssh exec` may only run commands matching one of these
+  prefixes
+
+EXAMPLES
+  $ ssh ssh exec allow
+
+  $ ssh ssh exec allow -p prod
+
+  $ ssh ssh exec allow -p prod --add tail --add grep
+
+  $ ssh ssh exec allow -p prod --remove grep
+
+  $ ssh ssh exec allow -p prod --clear
+```
+
+_See code: [src/commands/ssh/exec/allow.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/exec/allow.ts)_
 
 ## `ssh ssh servers add`
 
@@ -324,40 +386,6 @@ EXAMPLES
 
 _See code: [src/commands/ssh/servers/profile.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/servers/profile.ts)_
 
-## `ssh ssh servers safety`
-
-View or edit a server profile's artisan blacklist (subcommand prefixes `ssh artisan` refuses to run)
-
-```
-USAGE
-  $ ssh ssh servers safety [--json] [--add <value>...] [--clear] [-p <value>] [--remove <value>...]
-
-FLAGS
-  -p, --profile=<value>    SSH server profile name from config
-      --add=<value>...     Add a command prefix to the blacklist (repeatable)
-      --clear              Remove every entry from the profile's blacklist
-      --remove=<value>...  Remove a command prefix from the blacklist (repeatable)
-
-GLOBAL FLAGS
-  --json  Format output as json.
-
-DESCRIPTION
-  View or edit a server profile's artisan blacklist (subcommand prefixes `ssh artisan` refuses to run)
-
-EXAMPLES
-  $ ssh ssh servers safety
-
-  $ ssh ssh servers safety -p prod
-
-  $ ssh ssh servers safety -p prod --add migrate --add migrate:fresh
-
-  $ ssh ssh servers safety -p prod --remove migrate:fresh
-
-  $ ssh ssh servers safety -p prod --clear
-```
-
-_See code: [src/commands/ssh/servers/safety.ts](https://github.com/hesedcasa/ssh/blob/v0.4.0/src/commands/ssh/servers/safety.ts)_
-
 ## `ssh ssh servers test`
 
 Test authentication and connection
@@ -418,7 +446,7 @@ _See code: [src/commands/ssh/servers/update.ts](https://github.com/hesedcasa/ssh
 
 ## `ssh ssh tinker PHP`
 
-Execute PHP code in a Kubernetes pod via `artisan tinker --execute` (no shell escaping needed)
+Execute PHP code in Laravel tinker
 
 ```
 USAGE
@@ -426,7 +454,7 @@ USAGE
     <value>] [--role <value>]
 
 ARGUMENTS
-  PHP  PHP code to execute via tinker (no escaping needed)
+  PHP  PHP code to execute via tinker
 
 FLAGS
   -p, --profile=<value>    SSH server profile name from config
@@ -440,7 +468,7 @@ GLOBAL FLAGS
   --json  Format output as json.
 
 DESCRIPTION
-  Execute PHP code in a Kubernetes pod via `artisan tinker --execute` (no shell escaping needed)
+  Execute PHP code in Laravel tinker
 
 EXAMPLES
   $ ssh ssh tinker "App\\Models\\User::count()"
