@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/hesedcasa/ssh/compare/v0.4.0...v0.5.0) (2026-07-11)
+
+
+### 🎉 Features
+
+* add per-profile exec allowlist for ssh exec ([1cc0410](https://github.com/hesedcasa/ssh/commit/1cc04107fca149844b413cf93f33c15cf7387524))
+* add per-profile exec allowlist for ssh exec ([8457218](https://github.com/hesedcasa/ssh/commit/84572181ca707f41d336880fde87d9ec32c2cd90))
+
+
+### ♻️ Chores
+
+* generalize safety.ts into command-agnostic guards ([4a62242](https://github.com/hesedcasa/ssh/commit/4a62242d711be7a3437494c751071b1d90894398))
+* split artisan/exec safety commands into per-topic subcommands ([2fc83c0](https://github.com/hesedcasa/ssh/commit/2fc83c0eb110fef45d5fa04465bde5551c2a54e9))
+
 ## [0.4.0](https://github.com/hesedcasa/ssh/compare/v0.3.1...v0.4.0) (2026-07-11)
 
 
