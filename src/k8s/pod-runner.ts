@@ -162,17 +162,17 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
 /**
  * Build the artisan subcommand for a tinker `--execute` run.
  *
- * The PHP gets its own base64 layer, decoded via command substitution inside
- * the container. This is load-bearing: the pod runs the decoded command line
- * through `bash -c "$CMD"`, and that inner bash re-parses it — an inline
+ * The PHP is single-quoted, with embedded `'` escaped as `'\''`. This is
+ * load-bearing: the pod runs the decoded command line through
+ * `bash -c "$CMD"`, and that inner bash re-parses it — an inline
  * `--execute="${php}"` would have every `$var` in the PHP expanded away (and
- * any `"` would break the quoting) before PHP ever ran. A `$(... | base64 -d)`
- * substitution result is never re-scanned for expansion, so the PHP reaches
- * tinker byte-for-byte.
+ * any `"` would break the quoting) before PHP ever ran. Single quotes
+ * suppress all expansion, so the PHP reaches tinker byte-for-byte using only
+ * bash itself — no `base64` binary required inside the container image.
  */
 export function buildTinkerCommand(php: string): string {
-  const encoded = Buffer.from(php).toString('base64')
-  return `tinker --execute="$(echo ${encoded} | base64 -d)"`
+  const escaped = php.replaceAll("'", String.raw`'\''`)
+  return `tinker --execute='${escaped}'`
 }
 
 /** Build the remote `kubectl get pod` invocation used to discover pods. */

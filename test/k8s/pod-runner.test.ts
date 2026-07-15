@@ -184,24 +184,22 @@ describe('k8s/pod-runner', () => {
   })
 
   describe('buildTinkerCommand', () => {
-    it('base64-wraps the PHP so it is never inlined into the --execute string', () => {
-      const php = '$x = 5; echo $x;'
-      const command = buildTinkerCommand(php)
-      // The raw PHP must not appear: the pod's inner `bash -c "$CMD"` would
-      // expand `$x` away inside the double-quoted --execute="..." string.
-      expect(command).to.not.include(php)
-      expect(command).to.not.include('$x')
-      // Decoded via command substitution, whose result bash never re-expands.
-      const match = /^tinker --execute="\$\(echo ([A-Za-z0-9+/=]+) \| base64 -d\)"$/.exec(command)
-      expect(match, 'expected --execute="$(echo <b64> | base64 -d)"').to.not.be.null
-      expect(Buffer.from(match![1], 'base64').toString('utf8')).to.equal(php)
+    it('single-quotes the PHP so the inner bash never expands $variables', () => {
+      // The pod's inner `bash -c "$CMD"` re-parses the command line; inside a
+      // double-quoted --execute="..." it would expand `$x` away. Single quotes
+      // suppress all expansion — and need no base64 binary in the container.
+      const command = buildTinkerCommand('$x = 5; echo $x;')
+      expect(command).to.equal("tinker --execute='$x = 5; echo $x;'")
     })
 
-    it('round-trips PHP containing double quotes and backticks', () => {
-      const php = 'echo "hi `whoami`"; $u = User::first();'
-      const command = buildTinkerCommand(php)
-      const match = /echo ([A-Za-z0-9+/=]+) \| base64 -d/.exec(command)
-      expect(Buffer.from(match![1], 'base64').toString('utf8')).to.equal(php)
+    it('preserves double quotes and backticks verbatim', () => {
+      const command = buildTinkerCommand('echo "hi `whoami`"; $u = User::first();')
+      expect(command).to.equal(`tinker --execute='echo "hi \`whoami\`"; $u = User::first();'`)
+    })
+
+    it("escapes embedded single quotes as '\\''", () => {
+      const command = buildTinkerCommand("Cache::forget('some_key')")
+      expect(command).to.equal(String.raw`tinker --execute='Cache::forget('\''some_key'\'')'`)
     })
   })
 

@@ -138,7 +138,7 @@ export async function runArtisan(
 /**
  * Run a snippet of PHP via `artisan tinker --execute`. The caller passes raw
  * PHP (e.g. `$u = User::first(); echo $u->email;`); {@link buildTinkerCommand}
- * base64-wraps it so `$` variables and quotes survive the pod's inner
+ * single-quotes it so `$` variables and quotes survive the pod's inner
  * `bash -c "$CMD"` re-parse — the user never needs to escape anything.
  */
 // eslint-disable-next-line max-params -- mirrors executeQuery's signature
