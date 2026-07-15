@@ -38,9 +38,9 @@ export default class SshTinker extends BaseCommand {
       namespace: flags.namespace,
       role: flags.role,
     }
-    // The PHP is wrapped as `tinker --execute="..."` and base64-encoded by the
-    // runner, so the user passes raw PHP (e.g. `User::count()`) with no `\$`
-    // or `\"` escaping — a deliberate UX improvement over the original skill.
+    // The PHP is single-quote wrapped (see buildTinkerCommand) so the pod's
+    // inner bash never expands it — the user passes raw PHP, including
+    // `$variables` and quotes, with no `\$` or `\"` escaping.
     const result = await this.withSpinner('Running tinker command', () =>
       runTinker(this.config, args.php, flags.profile, overrides, flags.all),
     )

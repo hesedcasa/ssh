@@ -8,6 +8,7 @@ import {
   buildDiscoverLabelsArgs,
   buildListPodsArgs,
   buildPodExecArgs,
+  buildTinkerCommand,
   parsePodLabels,
   parsePodNames,
   PodRunner,
@@ -35,7 +36,7 @@ const directConn: ServerConnection = {
 }
 
 function makeRunner(stdout: string): SshRunner {
-  return stub().resolves({stderr: '', stdout}) as unknown as SshRunner
+  return stub().resolves({exitCode: 0, stderr: '', stdout}) as unknown as SshRunner
 }
 
 describe('k8s/pod-runner', () => {
@@ -182,6 +183,26 @@ describe('k8s/pod-runner', () => {
     })
   })
 
+  describe('buildTinkerCommand', () => {
+    it('single-quotes the PHP so the inner bash never expands $variables', () => {
+      // The pod's inner `bash -c "$CMD"` re-parses the command line; inside a
+      // double-quoted --execute="..." it would expand `$x` away. Single quotes
+      // suppress all expansion — and need no base64 binary in the container.
+      const command = buildTinkerCommand('$x = 5; echo $x;')
+      expect(command).to.equal("tinker --execute='$x = 5; echo $x;'")
+    })
+
+    it('preserves double quotes and backticks verbatim', () => {
+      const command = buildTinkerCommand('echo "hi `whoami`"; $u = User::first();')
+      expect(command).to.equal(`tinker --execute='echo "hi \`whoami\`"; $u = User::first();'`)
+    })
+
+    it(String.raw`escapes embedded single quotes as '\''`, () => {
+      const command = buildTinkerCommand("Cache::forget('some_key')")
+      expect(command).to.equal(String.raw`tinker --execute='Cache::forget('\''some_key'\'')'`)
+    })
+  })
+
   describe('parsePodNames', () => {
     it('strips the pod/ prefix and trims blank lines', () => {
       const pods = parsePodNames('pod/api-prod-1\npod/api-prod-2\n\n')
@@ -218,8 +239,8 @@ describe('k8s/pod-runner', () => {
     it('exec targets the first pod and returns its stdout', async () => {
       // First call: list pods. Second call: exec.
       sshRunner = stub()
-      sshRunner.onCall(0).resolves({stderr: '', stdout: 'pod/api-1\npod/api-2\n'})
-      sshRunner.onCall(1).resolves({stderr: '', stdout: '/var/www\n'})
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\npod/api-2\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: '', stdout: '/var/www\n'})
       const runner = new PodRunner({sshRunner: sshRunner as any})
 
       const result = await runner.exec(conn, 'pwd')
@@ -230,9 +251,9 @@ describe('k8s/pod-runner', () => {
 
     it('execAll runs every pod and labels each block', async () => {
       sshRunner = stub()
-      sshRunner.onCall(0).resolves({stderr: '', stdout: 'pod/api-1\npod/api-2\n'})
-      sshRunner.onCall(1).resolves({stderr: '', stdout: 'out-1'})
-      sshRunner.onCall(2).resolves({stderr: '', stdout: 'out-2'})
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\npod/api-2\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: '', stdout: 'out-1'})
+      sshRunner.onCall(2).resolves({exitCode: 0, stderr: '', stdout: 'out-2'})
       const runner = new PodRunner({sshRunner: sshRunner as any})
 
       const result = await runner.execAll(conn, 'hostname')
@@ -243,6 +264,47 @@ describe('k8s/pod-runner', () => {
       expect(text).to.include('out-1')
       expect(text).to.include('out-2')
       expect(result.data?.results).to.have.lengthOf(2)
+    })
+
+    it('exec keeps stdout and reports the exit code when the remote command exits non-zero', async () => {
+      // `grep -c` exits 1 on zero matches while printing a valid `0` —
+      // that stdout must not be swallowed.
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\n'})
+      sshRunner.onCall(1).resolves({exitCode: 1, stderr: 'command terminated with exit code 1', stdout: '0\n'})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.exec(conn, 'grep -c ERROR storage/logs/laravel.log')
+      expect(result.success).to.be.true
+      expect(result.data?.result).to.include('0')
+      expect(result.data?.result).to.include('[remote command exited with code 1]')
+      expect(result.data?.results?.[0].exitCode).to.equal(1)
+      expect(result.data?.results?.[0].stdout).to.equal('0\n')
+    })
+
+    it('execAll labels a block with the exit code when non-zero', async () => {
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\npod/api-2\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: '', stdout: '3\n'})
+      sshRunner.onCall(2).resolves({exitCode: 1, stderr: '', stdout: '0\n'})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.execAll(conn, 'grep -c ERROR storage/logs/laravel.log')
+      expect(result.success).to.be.true
+      const text = result.data?.result as string
+      expect(text).to.include('===== api-1 =====')
+      expect(text).to.include('===== api-2 (exit code 1) =====')
+    })
+
+    it('listPods surfaces kubectl/ssh failures instead of reporting "no pods"', async () => {
+      sshRunner = stub().resolves({exitCode: 255, stderr: 'Permission denied (publickey).', stdout: ''}) as any
+      const runner = new PodRunner({sshRunner})
+
+      const result = await runner.exec(conn, 'pwd')
+      expect(result.success).to.be.false
+      expect(String(result.error)).to.include('exit code 255')
+      expect(String(result.error)).to.include('Permission denied')
+      expect(String(result.error)).to.not.include('No running pods')
     })
 
     it('returns a failure result when the SSH call rejects', async () => {

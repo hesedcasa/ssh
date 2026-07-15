@@ -12,7 +12,13 @@ import type {Config} from '@oclif/core'
 import {createProfileManager} from '@hesed/plugin-lib'
 
 import {getServerConnectionOptions, type K8sConfig, type ServerConnection, type ServerProfile} from './config-loader.js'
-import {type ConnectionTestResult, type DiscoverLabelsResult, type ExecResult, PodRunner} from './pod-runner.js'
+import {
+  buildTinkerCommand,
+  type ConnectionTestResult,
+  type DiscoverLabelsResult,
+  type ExecResult,
+  PodRunner,
+} from './pod-runner.js'
 
 export type {ServerConnection, ServerProfile} from './config-loader.js'
 
@@ -131,8 +137,9 @@ export async function runArtisan(
 
 /**
  * Run a snippet of PHP via `artisan tinker --execute`. The caller passes raw
- * PHP (e.g. `User::count()`); it is wrapped and base64-encoded by the runner,
- * so — unlike the original skill — the user never needs to escape `$` or `"`.
+ * PHP (e.g. `$u = User::first(); echo $u->email;`); {@link buildTinkerCommand}
+ * single-quotes it so `$` variables and quotes survive the pod's inner
+ * `bash -c "$CMD"` re-parse — the user never needs to escape anything.
  */
 // eslint-disable-next-line max-params -- mirrors executeQuery's signature
 export async function runTinker(
@@ -142,7 +149,7 @@ export async function runTinker(
   overrides?: ExecOverrides,
   all = false,
 ): Promise<ExecResult> {
-  return runArtisan(config, `tinker --execute="${php}"`, profile, overrides, all)
+  return runArtisan(config, buildTinkerCommand(php), profile, overrides, all)
 }
 
 /**

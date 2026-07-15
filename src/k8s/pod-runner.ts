@@ -25,6 +25,8 @@ export const DEFAULT_TIMEOUT_MS = 30_000
  * entry per pod; for a single-pod run it returns a single entry.
  */
 export interface PodExecResult {
+  /** Remote command exit code. Non-zero is not necessarily an error (e.g. `grep` exits 1 on zero matches). */
+  exitCode: number
   /** Pod name (without the `pod/` prefix) this output came from. */
   pod: string
   stderr: string
@@ -68,21 +70,29 @@ export type DiscoverLabelsResult = ApiResult & {data?: DiscoverLabelsData}
  * Runs an SSH command locally. Isolated as a parameter so tests can stub it
  * instead of making real network calls.
  */
-export type SshRunner = (args: string[], timeoutMs: number) => Promise<{stderr: string; stdout: string}>
+export type SshRunner = (
+  args: string[],
+  timeoutMs: number,
+) => Promise<{exitCode: number; stderr: string; stdout: string}>
 
 /**
  * Default SSH runner using Node's `child_process.execFile`. Commands run
  * non-interactively (no `-it`) so output can be captured.
+ *
+ * A non-zero remote exit code RESOLVES (with the code) rather than rejecting:
+ * commands like `grep -c` exit 1 on zero matches while still printing a valid
+ * `0`, and rejecting would swallow that stdout. Only failures with no remote
+ * exit code — spawn errors (ssh binary missing) and timeout kills — reject.
  */
 export const defaultSshRunner: SshRunner = (args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile('ssh', args, {maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs}, (error, stdout, stderr) => {
-      if (error) {
+      if (error && (error.killed || typeof error.code !== 'number')) {
         reject(error)
         return
       }
 
-      resolve({stderr, stdout})
+      resolve({exitCode: error ? (error.code as number) : 0, stderr, stdout})
     })
   })
 
@@ -147,6 +157,22 @@ export function buildPodExecArgs(conn: ServerConnection, pod: string, command: s
   // the remote bash receives `CMD=$(... | base64 -d); ... bash -c "$CMD"`.
   const remoteCommand = `CMD=$(echo ${encoded} | base64 -d); sudo kubectl -n ${conn.namespace} exec ${pod} -c ${conn.container} -- bash -c "$CMD"`
   return wrapForHops(conn, remoteCommand)
+}
+
+/**
+ * Build the artisan subcommand for a tinker `--execute` run.
+ *
+ * The PHP is single-quoted, with embedded `'` escaped as `'\''`. This is
+ * load-bearing: the pod runs the decoded command line through
+ * `bash -c "$CMD"`, and that inner bash re-parses it — an inline
+ * `--execute="${php}"` would have every `$var` in the PHP expanded away (and
+ * any `"` would break the quoting) before PHP ever ran. Single quotes
+ * suppress all expansion, so the PHP reaches tinker byte-for-byte using only
+ * bash itself — no `base64` binary required inside the container image.
+ */
+export function buildTinkerCommand(php: string): string {
+  const escaped = php.replaceAll("'", String.raw`'\''`)
+  return `tinker --execute='${escaped}'`
 }
 
 /** Build the remote `kubectl get pod` invocation used to discover pods. */
@@ -223,7 +249,11 @@ export class PodRunner {
    */
   async discoverLabels(conn: ServerConnection): Promise<DiscoverLabelsResult> {
     try {
-      const {stdout} = await this.sshRunner(buildDiscoverLabelsArgs(conn), this.timeoutMs)
+      const {exitCode, stderr, stdout} = await this.sshRunner(buildDiscoverLabelsArgs(conn), this.timeoutMs)
+      if (exitCode !== 0) {
+        throw new Error(`kubectl get pod failed (exit code ${exitCode})${stderr.trim() ? `: ${stderr.trim()}` : ''}`)
+      }
+
       const combos = parsePodLabels(stdout)
       if (combos.length === 0) {
         throw new Error(`No running pods found in namespace=${conn.namespace}.`)
@@ -254,15 +284,26 @@ export class PodRunner {
    *
    * Returns a formatted human-readable `result` plus the raw per-pod entry in
    * `results` for machine consumers.
+   *
+   * A non-zero remote exit code is reported, not treated as a failure: the
+   * command's stdout/stderr are still returned (e.g. `grep -c` exits 1 on
+   * zero matches while printing a perfectly valid `0`), with the exit code
+   * appended so callers can tell the run wasn't clean.
    */
   async exec(conn: ServerConnection, command: string): Promise<ExecResult> {
     try {
       const [pod] = await this.listPods(conn)
-      const {stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
-      const entry: PodExecResult = {pod, stderr, stdout}
+      const {exitCode, stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
+      const entry: PodExecResult = {exitCode, pod, stderr, stdout}
+      const result =
+        exitCode === 0
+          ? stdout
+          : [stdout.trimEnd(), stderr.trimEnd(), `[remote command exited with code ${exitCode}]`]
+              .filter(Boolean)
+              .join('\n')
       return {
         data: {
-          result: stdout,
+          result,
           results: [entry],
         },
         success: true,
@@ -289,12 +330,15 @@ export class PodRunner {
       for (const pod of pods) {
         // Run pods sequentially to keep labelled blocks ordered and readable.
         // eslint-disable-next-line no-await-in-loop -- intentional: ordered output
-        const {stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
-        entries.push({pod, stderr, stdout})
+        const {exitCode, stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
+        entries.push({exitCode, pod, stderr, stdout})
       }
 
       const formatted = entries
-        .map((entry) => `===== ${entry.pod} =====\n${entry.stdout}${entry.stderr ? `\n${entry.stderr}` : ''}`)
+        .map((entry) => {
+          const label = entry.exitCode === 0 ? entry.pod : `${entry.pod} (exit code ${entry.exitCode})`
+          return `===== ${label} =====\n${entry.stdout}${entry.stderr ? `\n${entry.stderr}` : ''}`
+        })
         .join('\n\n')
 
       return {
@@ -319,7 +363,14 @@ export class PodRunner {
    * @throws if the SSH/kubectl invocation fails or returns no pods.
    */
   async listPods(conn: ServerConnection): Promise<string[]> {
-    const {stdout} = await this.sshRunner(buildListPodsArgs(conn), this.timeoutMs)
+    const {exitCode, stderr, stdout} = await this.sshRunner(buildListPodsArgs(conn), this.timeoutMs)
+    if (exitCode !== 0) {
+      // Pod listing output is machine-parsed, so a failed kubectl/ssh call
+      // must surface as an error — otherwise an auth failure would masquerade
+      // as "No running pods found".
+      throw new Error(`kubectl get pod failed (exit code ${exitCode})${stderr.trim() ? `: ${stderr.trim()}` : ''}`)
+    }
+
     const pods = parsePodNames(stdout)
     if (pods.length === 0) {
       throw new Error(
