@@ -197,7 +197,7 @@ describe('k8s/pod-runner', () => {
       expect(command).to.equal(`tinker --execute='echo "hi \`whoami\`"; $u = User::first();'`)
     })
 
-    it("escapes embedded single quotes as '\\''", () => {
+    it(String.raw`escapes embedded single quotes as '\''`, () => {
       const command = buildTinkerCommand("Cache::forget('some_key')")
       expect(command).to.equal(String.raw`tinker --execute='Cache::forget('\''some_key'\'')'`)
     })
