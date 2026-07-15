@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/hesedcasa/ssh/compare/v0.5.0...v0.6.0) (2026-07-15)
+
+
+### 🎉 Features
+
+* add exit code tracking and base64-encode tinker PHP ([414770c](https://github.com/hesedcasa/ssh/commit/414770c3620a4c337040421f09525ce4733ea4ff))
+* add exit code tracking and base64-encode tinker PHP ([1efd8a1](https://github.com/hesedcasa/ssh/commit/1efd8a12deac3a35f6b886e02b31babe1d1b7045))
+
+
+### 🛠️ Fixes
+
+* drop container base64 dependency for tinker PHP quoting ([b97d6fa](https://github.com/hesedcasa/ssh/commit/b97d6fa1605717948e6cecce4c2b460bf70242cc))
+
 ## [0.5.0](https://github.com/hesedcasa/ssh/compare/v0.4.0...v0.5.0) (2026-07-11)
 
 
