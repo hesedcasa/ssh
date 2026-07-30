@@ -217,7 +217,13 @@ export function checkCommandBlacklist(
   blacklisted: string[],
   commandKind = 'command',
 ): SafetyCheckResult {
-  const entries = blacklisted.map((raw) => ({entry: normalize(raw), raw})).filter(({entry}) => entry)
+  // Entries go through the same fd-duplication stripping as the command below:
+  // normalizing only one side would let an entry written `migrate 2>&1` match
+  // nothing at all, i.e. a deny-list silently failing open. `raw` is kept for
+  // the reason message so it quotes the entry as the profile configured it.
+  const entries = blacklisted
+    .map((raw) => ({entry: normalize(stripFdDuplications(raw)), raw}))
+    .filter(({entry}) => entry)
   if (entries.length === 0) {
     return {allowed: true}
   }
@@ -257,7 +263,8 @@ export function checkCommandBlacklist(
  * @param commandKind  label for the reason message, e.g. `exec`.
  */
 export function checkCommandAllowlist(command: string, allowed: string[], commandKind = 'command'): SafetyCheckResult {
-  const entries = allowed.map((entry) => normalize(entry)).filter(Boolean)
+  // Stripped the same way as the command below — see checkCommandBlacklist.
+  const entries = allowed.map((entry) => normalize(stripFdDuplications(entry))).filter(Boolean)
   if (entries.length === 0) {
     return {allowed: true}
   }

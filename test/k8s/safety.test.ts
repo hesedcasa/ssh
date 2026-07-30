@@ -111,6 +111,20 @@ describe('k8s:safety', () => {
       expect(checkCommandBlacklist('cache:clear 2>&1', blacklist).allowed).to.be.true
     })
 
+    it('strips fd duplication from entries too, so a blacklist entry containing it still matches', () => {
+      // Entries and commands must be normalized identically. Stripping only the
+      // command would make an entry written `migrate 2>&1` match nothing — a
+      // deny-list failing open, the one direction that must not happen.
+      const result = checkCommandBlacklist('migrate 2>&1', ['migrate 2>&1'], 'artisan')
+      expect(result.allowed).to.be.false
+      // The reason still quotes the entry exactly as the profile configured it.
+      expect(result.blockedCommand).to.equal('migrate 2>&1')
+      // fd duplication is not part of the command prefix, so such an entry
+      // blocks the bare command as well.
+      expect(checkCommandBlacklist('migrate --force', ['migrate 2>&1'], 'artisan').allowed).to.be.false
+      expect(checkCommandBlacklist('migrate', ['migrate 2>&1'], 'artisan').allowed).to.be.false
+    })
+
     it('allows chaining and redirection when the blacklist is empty (guard disabled)', () => {
       expect(checkCommandBlacklist('cache:clear && migrate', []).allowed).to.be.true
       expect(checkCommandBlacklist('cache:clear > /etc/passwd', []).allowed).to.be.true
@@ -197,6 +211,15 @@ describe('k8s:safety', () => {
       expect(checkCommandAllowlist('tail -1 log >&2', allowlist).allowed).to.be.true
       expect(checkCommandAllowlist('tail -1 log 2>&-', allowlist).allowed).to.be.true
       expect(checkCommandAllowlist('grep ERROR log <&0', allowlist).allowed).to.be.true
+    })
+
+    it('strips fd duplication from entries too, so an allowlist entry containing it still matches', () => {
+      // Same symmetry as the blacklist. Here the asymmetry failed closed
+      // (dead config rather than a hole), but it must still be consistent.
+      expect(checkCommandAllowlist('tail -1 log 2>&1', ['tail 2>&1'], 'exec').allowed).to.be.true
+      expect(checkCommandAllowlist('tail -1 log', ['tail 2>&1'], 'exec').allowed).to.be.true
+      // Widening an entry must not turn it into a blanket allow.
+      expect(checkCommandAllowlist('rm -rf /', ['tail 2>&1'], 'exec').allowed).to.be.false
     })
 
     it('still checks every command in a chain that also uses fd duplication', () => {
