@@ -62,7 +62,11 @@
     "dirname": "ssh",
     "commands": "./dist/commands",
     "topicSeparator": " ",
-    "topics": {}
+    "topics": {
+      "ssh": {
+        "description": "CLI for SSH access to Kubernetes pods"
+      }
+    }
   },
   "repository": "hesedcasa/ssh",
   "scripts": {

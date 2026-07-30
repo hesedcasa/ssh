@@ -14,73 +14,9 @@ sdkck plugins install @hesed/ssh
 <!-- toc -->
 * [ssh](#ssh)
 * [Install](#install)
-* [SSH to Kubernetes pods](#ssh-to-kubernetes-pods)
-* [1. Add a server profile (interactive, or pass the flags below)](#1-add-a-server-profile-interactive-or-pass-the-flags-below)
-* [With a bastion (two-hop chain):](#with-a-bastion-two-hop-chain)
-* [Without a bastion (direct to kubectl host):](#without-a-bastion-direct-to-kubectl-host)
-* [2. Run a bash command in the first running pod](#2-run-a-bash-command-in-the-first-running-pod)
-* [3. Fan out across ALL pods (labelled output — useful for log scanning)](#3-fan-out-across-all-pods-labelled-output--useful-for-log-scanning)
-* [4. Laravel artisan](#4-laravel-artisan)
-* [Artisan subcommand flags need `--` to separate them from oclif flags:](#artisan-subcommand-flags-need----to-separate-them-from-oclif-flags)
-* [5. PHP tinker (no escaping needed — pass raw PHP)](#5-php-tinker-no-escaping-needed--pass-raw-php)
 * [Usage](#usage)
 * [Commands](#commands)
 <!-- tocstop -->
-
-# SSH to Kubernetes pods
-
-This plugin reaches application pods via an SSH chain. By default it uses a
-bastion jump host (local → bastion → kubectl host → `kubectl exec`), but the
-bastion is optional — omit it to SSH directly to the kubectl host. Every
-connection detail (bastion host, kubectl host, namespace, pod labels, container,
-SSH user) lives in a **server profile** stored in `ssh-servers.json` under
-oclif's config dir.
-
-```bash
-# 1. Add a server profile (interactive, or pass the flags below)
-# With a bastion (two-hop chain):
-ssh ssh servers add -p prod --bastionHost sglogin.example.com \
-  --sshHost k8s.example.com -u allen -n sa-prod
-
-# Without a bastion (direct to kubectl host):
-ssh ssh servers add -p dev --sshHost k8s-dev.example.com -u allen -n sa-dev
-
-# 2. Run a bash command in the first running pod
-ssh ssh exec pwd -p prod
-
-# 3. Fan out across ALL pods (labelled output — useful for log scanning)
-ssh ssh exec --all "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" -p prod
-
-# 4. Laravel artisan
-ssh ssh artisan cache:clear -p prod
-# Artisan subcommand flags need `--` to separate them from oclif flags:
-ssh ssh artisan -- queue:work --timeout=60
-
-# 5. PHP tinker (no escaping needed — pass raw PHP)
-ssh ssh tinker "App\\Models\\User::count()" -p prod
-```
-
-> **Migration safety:** `ssh artisan` blocks nothing by default — each
-> profile has its own opt-in artisan blacklist (empty until you configure
-> it). Migrations are destructive, so lock them down per profile:
->
-> ```bash
-> ssh ssh artisan block -p prod --add migrate --add migrate:fresh \
->   --add "migrate:fresh --seed" --add migrate:rollback --add migrate:reset \
->   --add migrate:refresh --add migrate:install --add migrate:status \
->   --add migrate:change
-> ssh ssh artisan block -p prod  # view the current blacklist
-> ```
-
-> **Exec allowlist:** `ssh exec` runs any command by default. To restrict a
-> profile to a set of command prefixes, use `ssh exec allow`:
->
-> ```bash
-> ssh ssh exec allow -p prod --add tail --add grep --add "php artisan cache:clear"
-> ssh ssh exec allow -p prod  # view the current allowlist
-> ```
->
-> An empty (or unset) allowlist disables the guard — every command may run.
 
 # Usage
 
@@ -90,7 +26,7 @@ $ npm install -g @hesed/ssh
 $ ssh COMMAND
 running command...
 $ ssh (--version)
-@hesed/ssh/0.6.0 linux-x64 node-v22.23.1
+@hesed/ssh/0.6.0 linux-arm64 node-v24.18.0
 $ ssh --help [COMMAND]
 USAGE
   $ ssh COMMAND
@@ -260,18 +196,18 @@ Add SSH Server authentication
 
 ```
 USAGE
-  $ ssh ssh servers add -p <value> --bastionHost <value> --sshHost <value> -u <value> -n <value> --component <value>
-    --role <value> --container <value> [--json]
+  $ ssh ssh servers add [--json] [-p <value>] [--bastionHost <value>] [--sshHost <value>] [-u <value>] [-n <value>]
+    [--component <value>] [--role <value>] [--container <value>]
 
 FLAGS
-  -n, --namespace=<value>    (required) Kubernetes namespace
-  -p, --profile=<value>      (required) Profile name
-  -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  (required) Bastion host
-      --component=<value>    (required) Pod component label
-      --container=<value>    (required) Container name within the pod
-      --role=<value>         (required) Pod role label
-      --sshHost=<value>      (required) Kubernetes host
+  -n, --namespace=<value>    Kubernetes namespace
+  -p, --profile=<value>      Profile name
+  -u, --sshUser=<value>      SSH username for both hops
+      --bastionHost=<value>  Bastion host
+      --component=<value>    Pod component label
+      --container=<value>    Container name within the pod
+      --role=<value>         Pod role label
+      --sshHost=<value>      Kubernetes host
 
 GLOBAL FLAGS
   --json  Format output as json.
@@ -416,18 +352,18 @@ Update SSH Server authentication
 
 ```
 USAGE
-  $ ssh ssh servers update -p <value> --bastionHost <value> --sshHost <value> -u <value> -n <value> --component <value>
-    --role <value> --container <value> [--json]
+  $ ssh ssh servers update [--json] [-p <value>] [--bastionHost <value>] [--sshHost <value>] [-u <value>] [-n <value>]
+    [--component <value>] [--role <value>] [--container <value>]
 
 FLAGS
-  -n, --namespace=<value>    (required) Kubernetes namespace
-  -p, --profile=<value>      (required) Profile name
-  -u, --sshUser=<value>      (required) SSH username for both hops
-      --bastionHost=<value>  (required) Bastion host
-      --component=<value>    (required) Pod component label
-      --container=<value>    (required) Container name within the pod
-      --role=<value>         (required) Pod role label
-      --sshHost=<value>      (required) Kubernetes host
+  -n, --namespace=<value>    Kubernetes namespace
+  -p, --profile=<value>      Profile name
+  -u, --sshUser=<value>      SSH username for both hops
+      --bastionHost=<value>  Bastion host
+      --component=<value>    Pod component label
+      --container=<value>    Container name within the pod
+      --role=<value>         Pod role label
+      --sshHost=<value>      Kubernetes host
 
 GLOBAL FLAGS
   --json  Format output as json.
