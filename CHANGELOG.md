@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/hesedcasa/ssh/compare/v0.6.0...v0.6.1) (2026-07-30)
+
+
+### 🛠️ Fixes
+
+* show pod stderr on clean exits and permit fd duplication in guards ([5c46dde](https://github.com/hesedcasa/ssh/commit/5c46ddeb359f1188fc8461d91c1ee2c1b8e9d96f))
+* show pod stderr on clean exits and permit fd duplication in guards ([9c21b17](https://github.com/hesedcasa/ssh/commit/9c21b17ab25e817073cbf74ffc3ee03c0148d6b8))
+* strip fd duplication from safety list entries too ([69a1322](https://github.com/hesedcasa/ssh/commit/69a13221d7d91b1303117664a7f580d2443203c0))
+
+
+### 📄 Documentation
+
+* remove unnecessary examples in the README.md ([031db46](https://github.com/hesedcasa/ssh/commit/031db461ec04b4c7ae8557a460bd4f42b5e55cf6))
+
 ## [0.6.0](https://github.com/hesedcasa/ssh/compare/v0.5.0...v0.6.0) (2026-07-15)
 
 
