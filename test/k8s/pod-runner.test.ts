@@ -249,6 +249,56 @@ describe('k8s/pod-runner', () => {
       expect(result.data?.results?.[0].pod).to.equal('api-1')
     })
 
+    it('exec includes stderr in the formatted result even when the command exits 0', async () => {
+      // A pod command can succeed and still warn on stderr (PHP notices,
+      // deprecations). Dropping that silently is why callers had to append
+      // `2>&1` by hand; execAll has always included it.
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: 'PHP Warning: undefined var\n', stdout: 'out\n'})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.exec(conn, 'php -r "echo 1;"')
+      expect(result.success).to.be.true
+      expect(result.data?.result).to.include('out')
+      expect(result.data?.result).to.include('PHP Warning: undefined var')
+      // A clean exit must not be labelled as a failure.
+      expect(result.data?.result).to.not.include('exited with code')
+      expect(result.data?.results?.[0].stderr).to.equal('PHP Warning: undefined var\n')
+    })
+
+    it('exec does not lead with a blank line when the command only wrote to stderr', async () => {
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: 'only-stderr\n', stdout: ''})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.exec(conn, 'cat missing')
+      expect(result.data?.result).to.equal('only-stderr')
+    })
+
+    it('exec returns stdout byte-for-byte when there is nothing to append', async () => {
+      // No stderr and a clean exit: the trailing newline must survive so piped
+      // output is unchanged by the stderr handling above.
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\n'})
+      sshRunner.onCall(1).resolves({exitCode: 0, stderr: '', stdout: 'line1\nline2\n'})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.exec(conn, 'cat file')
+      expect(result.data?.result).to.equal('line1\nline2\n')
+    })
+
+    it('exec reports both stderr and the exit code when the command fails', async () => {
+      sshRunner = stub()
+      sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\n'})
+      sshRunner.onCall(1).resolves({exitCode: 2, stderr: 'No such file\n', stdout: 'partial\n'})
+      const runner = new PodRunner({sshRunner: sshRunner as any})
+
+      const result = await runner.exec(conn, 'cat missing')
+      expect(result.data?.result).to.equal('partial\nNo such file\n[remote command exited with code 2]')
+    })
+
     it('execAll runs every pod and labels each block', async () => {
       sshRunner = stub()
       sshRunner.onCall(0).resolves({exitCode: 0, stderr: '', stdout: 'pod/api-1\npod/api-2\n'})

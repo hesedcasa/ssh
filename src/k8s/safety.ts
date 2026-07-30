@@ -28,9 +28,12 @@
  * would actually run (see {@link flattenCommands}) and check each one — so
  * `"grep ERROR log | tail -5"` is allowed when both `grep` and `tail` are
  * allowlisted, but `"tail -5 log && rm -rf /"` is still blocked because
- * `rm` isn't. Redirection (`<`, `>`) is rejected outright instead, since it
- * doesn't name a command to check — it lets an already-permitted command
- * read or overwrite an arbitrary file.
+ * `rm` isn't. File redirection (`<`, `>`) is rejected outright instead, since
+ * it doesn't name a command to check — it lets an already-permitted command
+ * read or overwrite an arbitrary file. Pure fd duplications (`2>&1`, `>&2`,
+ * `2>&-`, `<&0`) are exempt: they redirect between already-open descriptors
+ * and touch no file, so blocking them only cost callers the standard way to
+ * merge a pod's stderr into its stdout. See {@link FD_DUPLICATION}.
  */
 
 export interface SafetyCheckResult {
@@ -55,6 +58,28 @@ function normalize(cmd: string): string {
  */
 function matchesEntry(command: string, entry: string): boolean {
   return command === entry || command.startsWith(`${entry} `) || command.startsWith(`${entry}:`)
+}
+
+/**
+ * File-descriptor duplications: `2>&1`, `>&2`, `2>&-`, `<&0`. These redirect
+ * between already-open descriptors — they name no file and no command, so
+ * neither the file-write risk behind {@link hasRedirection} nor the chain
+ * analysis in {@link flattenCommands} applies to them.
+ *
+ * Deliberately NOT matched, so both keep their `<`/`>` and stay blocked:
+ * `&>file` (bash shorthand for "both streams to this file") has no `&` after
+ * its `>`, and `2>>file` leaves a second `>` behind.
+ */
+const FD_DUPLICATION = /\d?[<>]&[\d-]/g
+
+/**
+ * Remove fd duplications before a command is analysed. Each is replaced with a
+ * space rather than deleted, so stripping can never glue two tokens into a
+ * different (possibly allowlisted) command — `tai<&0l` becomes `tai l`, not
+ * `tail`.
+ */
+function stripFdDuplications(command: string): string {
+  return command.replaceAll(FD_DUPLICATION, ' ')
 }
 
 /** True when `command` contains file redirection, which we refuse outright — see module docs. */
@@ -192,19 +217,27 @@ export function checkCommandBlacklist(
   blacklisted: string[],
   commandKind = 'command',
 ): SafetyCheckResult {
-  const entries = blacklisted.map((raw) => ({entry: normalize(raw), raw})).filter(({entry}) => entry)
+  // Entries go through the same fd-duplication stripping as the command below:
+  // normalizing only one side would let an entry written `migrate 2>&1` match
+  // nothing at all, i.e. a deny-list silently failing open. `raw` is kept for
+  // the reason message so it quotes the entry as the profile configured it.
+  const entries = blacklisted
+    .map((raw) => ({entry: normalize(stripFdDuplications(raw)), raw}))
+    .filter(({entry}) => entry)
   if (entries.length === 0) {
     return {allowed: true}
   }
 
-  if (hasRedirection(command)) {
+  const analysed = stripFdDuplications(command)
+
+  if (hasRedirection(analysed)) {
     return {
       allowed: false,
       reason: `The ${commandKind} command contains file redirection (<, >), which could read or overwrite a file outside this check. Remove the redirection and run the command directly.`,
     }
   }
 
-  for (const segment of flattenCommands(command)) {
+  for (const segment of flattenCommands(analysed)) {
     const normalizedSegment = normalize(segment)
     for (const {entry, raw} of entries) {
       if (matchesEntry(normalizedSegment, entry)) {
@@ -230,19 +263,22 @@ export function checkCommandBlacklist(
  * @param commandKind  label for the reason message, e.g. `exec`.
  */
 export function checkCommandAllowlist(command: string, allowed: string[], commandKind = 'command'): SafetyCheckResult {
-  const entries = allowed.map((entry) => normalize(entry)).filter(Boolean)
+  // Stripped the same way as the command below — see checkCommandBlacklist.
+  const entries = allowed.map((entry) => normalize(stripFdDuplications(entry))).filter(Boolean)
   if (entries.length === 0) {
     return {allowed: true}
   }
 
-  if (hasRedirection(command)) {
+  const analysed = stripFdDuplications(command)
+
+  if (hasRedirection(analysed)) {
     return {
       allowed: false,
       reason: `Command contains file redirection (<, >), which could read or overwrite a file outside the profile's ${commandKind} allowlist. Remove the redirection and run the command directly.`,
     }
   }
 
-  for (const segment of flattenCommands(command)) {
+  for (const segment of flattenCommands(analysed)) {
     const normalizedSegment = normalize(segment)
     if (!entries.some((entry) => matchesEntry(normalizedSegment, entry))) {
       return {

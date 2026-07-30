@@ -103,8 +103,26 @@ describe('k8s:safety', () => {
       expect(checkCommandBlacklist('cache:clear; route:list', blacklist).allowed).to.be.true
     })
 
-    it('rejects redirection outright even when nothing in the chain is blacklisted', () => {
+    it('rejects file redirection outright even when nothing in the chain is blacklisted', () => {
       expect(checkCommandBlacklist('cache:clear > /etc/passwd', blacklist).allowed).to.be.false
+    })
+
+    it('allows fd duplication, which names no file to write', () => {
+      expect(checkCommandBlacklist('cache:clear 2>&1', blacklist).allowed).to.be.true
+    })
+
+    it('strips fd duplication from entries too, so a blacklist entry containing it still matches', () => {
+      // Entries and commands must be normalized identically. Stripping only the
+      // command would make an entry written `migrate 2>&1` match nothing — a
+      // deny-list failing open, the one direction that must not happen.
+      const result = checkCommandBlacklist('migrate 2>&1', ['migrate 2>&1'], 'artisan')
+      expect(result.allowed).to.be.false
+      // The reason still quotes the entry exactly as the profile configured it.
+      expect(result.blockedCommand).to.equal('migrate 2>&1')
+      // fd duplication is not part of the command prefix, so such an entry
+      // blocks the bare command as well.
+      expect(checkCommandBlacklist('migrate --force', ['migrate 2>&1'], 'artisan').allowed).to.be.false
+      expect(checkCommandBlacklist('migrate', ['migrate 2>&1'], 'artisan').allowed).to.be.false
     })
 
     it('allows chaining and redirection when the blacklist is empty (guard disabled)', () => {
@@ -175,8 +193,49 @@ describe('k8s:safety', () => {
       expect(checkCommandAllowlist('tail -1 log\r\nrm -rf /', allowlist).allowed).to.be.false
     })
 
-    it('rejects redirection outright, since there is no command to check', () => {
+    it('rejects file redirection outright, since there is no command to check', () => {
       expect(checkCommandAllowlist('tail -1 log > /etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log >> /etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log 2> /etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log 2>> /etc/passwd', allowlist).allowed).to.be.false
+      // `&>` is bash shorthand for "both streams to this FILE" — still a write.
+      expect(checkCommandAllowlist('tail -1 log &> /etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('grep ERROR < /etc/shadow', allowlist).allowed).to.be.false
+    })
+
+    it('allows fd duplication: it names no file, so the write risk does not apply', () => {
+      // The reason to reach for `2>&1` at all: merging stderr into stdout so a
+      // pod's warnings are visible. It redirects between already-open fds.
+      expect(checkCommandAllowlist('tail -20 log 2>&1', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('grep ERROR log 2>&1 | tail -5', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('tail -1 log >&2', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('tail -1 log 2>&-', allowlist).allowed).to.be.true
+      expect(checkCommandAllowlist('grep ERROR log <&0', allowlist).allowed).to.be.true
+    })
+
+    it('strips fd duplication from entries too, so an allowlist entry containing it still matches', () => {
+      // Same symmetry as the blacklist. Here the asymmetry failed closed
+      // (dead config rather than a hole), but it must still be consistent.
+      expect(checkCommandAllowlist('tail -1 log 2>&1', ['tail 2>&1'], 'exec').allowed).to.be.true
+      expect(checkCommandAllowlist('tail -1 log', ['tail 2>&1'], 'exec').allowed).to.be.true
+      // Widening an entry must not turn it into a blanket allow.
+      expect(checkCommandAllowlist('rm -rf /', ['tail 2>&1'], 'exec').allowed).to.be.false
+    })
+
+    it('still checks every command in a chain that also uses fd duplication', () => {
+      // Stripping `2>&1` must not disable chain analysis for what surrounds it.
+      expect(checkCommandAllowlist('tail -1 log 2>&1 && rm -rf /', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log 2>&1; rm -rf /', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail $(id 2>&1)', allowlist).allowed).to.be.false
+    })
+
+    it('still blocks a file redirection hidden behind an fd duplication', () => {
+      expect(checkCommandAllowlist('tail -1 log 2>&1>/etc/passwd', allowlist).allowed).to.be.false
+      expect(checkCommandAllowlist('tail -1 log 2>&11>/etc/passwd', allowlist).allowed).to.be.false
+    })
+
+    it('does not let stripping fd duplication glue two tokens into an allowed prefix', () => {
+      expect(checkCommandAllowlist('tai<&0l /etc/passwd', allowlist).allowed).to.be.false
     })
 
     it('allows a chain where every link matches the allowlist', () => {

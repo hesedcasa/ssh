@@ -289,18 +289,24 @@ export class PodRunner {
    * command's stdout/stderr are still returned (e.g. `grep -c` exits 1 on
    * zero matches while printing a perfectly valid `0`), with the exit code
    * appended so callers can tell the run wasn't clean.
+   *
+   * stderr is included whatever the exit code — a command can succeed and
+   * still warn (PHP notices, deprecations), and dropping that output on a
+   * clean exit left callers appending `2>&1` by hand to see it. Matches
+   * `execAll`, which has always shown stderr.
+   *
+   * When there is no stderr and the exit was clean, `result` is `stdout`
+   * byte-for-byte — no trimming — so piped output is unaffected.
    */
   async exec(conn: ServerConnection, command: string): Promise<ExecResult> {
     try {
       const [pod] = await this.listPods(conn)
       const {exitCode, stderr, stdout} = await this.sshRunner(buildPodExecArgs(conn, pod, command), this.timeoutMs)
       const entry: PodExecResult = {exitCode, pod, stderr, stdout}
-      const result =
-        exitCode === 0
-          ? stdout
-          : [stdout.trimEnd(), stderr.trimEnd(), `[remote command exited with code ${exitCode}]`]
-              .filter(Boolean)
-              .join('\n')
+      const notes = [stderr.trimEnd(), exitCode === 0 ? '' : `[remote command exited with code ${exitCode}]`].filter(
+        Boolean,
+      )
+      const result = notes.length === 0 ? stdout : [stdout.trimEnd(), ...notes].filter(Boolean).join('\n')
       return {
         data: {
           result,
