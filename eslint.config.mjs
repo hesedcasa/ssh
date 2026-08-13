@@ -20,18 +20,6 @@ const config = [
     files: ['test/**/*.ts'],
     ...tseslint.configs.disableTypeChecked,
   },
-  // eslint.config.mjs references non-camel-case option names from
-  // typescript-eslint's API (e.g. the escape-hatch key below). typescript-eslint
-  // is a transitive dependency (via eslint-config-oclif), so it isn't listed
-  // directly — relax the extraneous-dependency checks for this file only.
-  {
-    files: ['eslint.config.mjs'],
-    rules: {
-      camelcase: 'off',
-      'import-x/no-extraneous-dependencies': 'off',
-      'n/no-extraneous-import': 'off',
-    },
-  },
   // Relax overly-strict rules from eslint-config-oclif@7 across the project.
   {
     rules: {
