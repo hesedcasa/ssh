@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.2](https://github.com/hesedcasa/ssh/compare/v0.6.1...v0.6.2) (2026-08-13)
+
+
+### 🛠️ Fixes
+
+* declare typescript-eslint as a direct devDependency ([21f917e](https://github.com/hesedcasa/ssh/commit/21f917e9027441ebd10d932194e4abd9fe7d2949))
+
+
+### ♻️ Chores
+
+* upgrade ESLint and fix TypeScript compilation errors ([f2a2467](https://github.com/hesedcasa/ssh/commit/f2a2467a8dfdfccbe1ccacf4c075d70af0500a1b))
+
 ## [0.6.1](https://github.com/hesedcasa/ssh/compare/v0.6.0...v0.6.1) (2026-07-30)
 
 
