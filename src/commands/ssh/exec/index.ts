@@ -10,12 +10,12 @@ import {
   execInPod,
   getExecAllowlist,
 } from '../../../k8s/index.js'
-import {ExecData} from '../../../k8s/pod-runner.js'
 
 export default class SshExec extends BaseCommand {
   static override args = {
     command: Args.string({description: 'Command to execute', required: true}),
   }
+
   static override description = 'Execute a bash command'
   static override enableJsonFlag = true
   static override examples = [
@@ -23,6 +23,7 @@ export default class SshExec extends BaseCommand {
     '<%= config.bin %> <%= command.id %> "tail -20 storage/logs/laravel-$(date +%Y-%m-%d).log" --all',
     '<%= config.bin %> <%= command.id %> "grep ERROR storage/logs/laravel.log" --namespace sa-testqa',
   ]
+
   static override flags = {
     all: Flags.boolean({
       default: false,
@@ -52,7 +53,7 @@ export default class SshExec extends BaseCommand {
       namespace: flags.namespace,
       role: flags.role,
     }
-    const result = await this.withSpinner('Running command', () =>
+    const result = await this.withSpinner('Running command', async () =>
       flags.all
         ? execInAllPods(this.config, args.command, flags.profile, overrides)
         : execInPod(this.config, args.command, flags.profile, overrides),
@@ -62,7 +63,7 @@ export default class SshExec extends BaseCommand {
     if (result.success) {
       this.log(typeof result.data?.result === 'string' ? result.data.result : '')
 
-      delete (result.data as ExecData).result
+      delete result.data!.result
 
       return result
     }

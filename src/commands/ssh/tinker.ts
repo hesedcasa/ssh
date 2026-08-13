@@ -4,7 +4,6 @@ import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../base-command.js'
 import {closeConnections, runTinker} from '../../k8s/index.js'
-import {ExecData} from '../../k8s/pod-runner.js'
 
 export default class SshTinker extends BaseCommand {
   static override args = {
@@ -13,6 +12,7 @@ export default class SshTinker extends BaseCommand {
       required: true,
     }),
   }
+
   static override description = 'Execute PHP code in Laravel tinker'
   static override enableJsonFlag = true
   static override examples = [
@@ -20,6 +20,7 @@ export default class SshTinker extends BaseCommand {
     '<%= config.bin %> <%= command.id %> "echo User::first()->email;" -p prod',
     '<%= config.bin %> <%= command.id %> "Cache::forget(\'some_key\')"',
   ]
+
   static override flags = {
     all: Flags.boolean({default: false, description: 'Run on ALL running pods; output is labelled per pod'}),
     component: Flags.string({description: 'Override pod component label (default: from profile)'}),
@@ -41,7 +42,7 @@ export default class SshTinker extends BaseCommand {
     // The PHP is single-quote wrapped (see buildTinkerCommand) so the pod's
     // inner bash never expands it — the user passes raw PHP, including
     // `$variables` and quotes, with no `\$` or `\"` escaping.
-    const result = await this.withSpinner('Running tinker command', () =>
+    const result = await this.withSpinner('Running tinker command', async () =>
       runTinker(this.config, args.php, flags.profile, overrides, flags.all),
     )
     await closeConnections()
@@ -49,7 +50,7 @@ export default class SshTinker extends BaseCommand {
     if (result.success) {
       this.log(typeof result.data?.result === 'string' ? result.data.result : '')
 
-      delete (result.data as ExecData).result
+      delete result.data!.result
 
       return result
     }

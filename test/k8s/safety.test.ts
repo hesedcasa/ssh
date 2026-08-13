@@ -79,7 +79,7 @@ describe('k8s:safety', () => {
     })
 
     it('ignores blank blacklist entries', () => {
-      expect(checkCommandBlacklist('cache:clear', ['', '   ']).allowed).to.be.true
+      expect(checkCommandBlacklist('cache:clear', ['', ' '.repeat(3)]).allowed).to.be.true
     })
 
     it('labels the reason with the given command kind', () => {
@@ -171,7 +171,7 @@ describe('k8s:safety', () => {
     })
 
     it('ignores blank allowlist entries (all-blank list allows everything)', () => {
-      expect(checkCommandAllowlist('rm -rf /', ['', '   ']).allowed).to.be.true
+      expect(checkCommandAllowlist('rm -rf /', ['', ' '.repeat(3)]).allowed).to.be.true
       expect(checkCommandAllowlist('tail -1 log', ['', 'tail']).allowed).to.be.true
     })
 

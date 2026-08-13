@@ -20,6 +20,7 @@ export default class SshExecAllow extends BaseCommand {
     '<%= config.bin %> <%= command.id %> -p prod --remove grep',
     '<%= config.bin %> <%= command.id %> -p prod --clear',
   ]
+
   static override flags = {
     add: Flags.string({description: 'Add a command prefix to the allowlist (repeatable)', multiple: true}),
     clear: Flags.boolean({default: false, description: "Remove every entry from the profile's allowlist"}),

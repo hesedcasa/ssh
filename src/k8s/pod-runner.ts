@@ -13,6 +13,7 @@ import type {ApiResult} from '@hesed/plugin-lib'
  * to close — `closeAll()` is a no-op kept for symmetry with the auth-command
  * `clearClients` contract.
  */
+import {Buffer} from 'node:buffer'
 import {execFile} from 'node:child_process'
 
 import type {ServerConnection} from './config-loader.js'
@@ -24,7 +25,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000
  * Output of a single pod execution. For `--all` fan-out the engine returns one
  * entry per pod; for a single-pod run it returns a single entry.
  */
-export interface PodExecResult {
+export type PodExecResult = {
   /** Remote command exit code. Non-zero is not necessarily an error (e.g. `grep` exits 1 on zero matches). */
   exitCode: number
   /** Pod name (without the `pod/` prefix) this output came from. */
@@ -33,7 +34,7 @@ export interface PodExecResult {
   stdout: string
 }
 
-export interface ExecData {
+export type ExecData = {
   result?: string
   results?: PodExecResult[]
 }
@@ -41,7 +42,7 @@ export interface ExecData {
 export type ExecResult = ApiResult & {data?: ExecData}
 
 /** Connection-test payload returned by {@link PodRunner.testConnection}. */
-export interface ConnectionTestData {
+export type ConnectionTestData = {
   pods: string[]
   result?: string
 }
@@ -49,14 +50,14 @@ export interface ConnectionTestData {
 export type ConnectionTestResult = ApiResult & {data?: ConnectionTestData}
 
 /** One distinct component/role combination and how many running pods carry it. */
-export interface PodLabelCombo {
+export type PodLabelCombo = {
   component: string
   count: number
   role: string
 }
 
 /** Label-discovery payload returned by {@link PodRunner.discoverLabels}. */
-export interface DiscoverLabelsData {
+export type DiscoverLabelsData = {
   combos: PodLabelCombo[]
   components: string[]
   namespace: string
@@ -84,10 +85,11 @@ export type SshRunner = (
  * `0`, and rejecting would swallow that stdout. Only failures with no remote
  * exit code — spawn errors (ssh binary missing) and timeout kills — reject.
  */
-export const defaultSshRunner: SshRunner = (args, timeoutMs) =>
+export const defaultSshRunner: SshRunner = async (args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile('ssh', args, {maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs}, (error, stdout, stderr) => {
       if (error && (error.killed || typeof error.code !== 'number')) {
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- @types/node models ExecFileException as a plain object (`Omit<ErrnoException, 'code'>`), but it is an Error instance at runtime
         reject(error)
         return
       }
@@ -207,7 +209,7 @@ export function buildDiscoverLabelsArgs(conn: ServerConnection): string[] {
 export function parsePodLabels(stdout: string): PodLabelCombo[] {
   const counts = new Map<string, PodLabelCombo>()
   for (const line of stdout.split('\n')) {
-    const [pod, component, role] = line.trim().split(/\s+/)
+    const [pod, component, role] = line.trim().split(/\s+/, 3)
     if (!pod || !component || !role) continue
     const key = `${component} ${role}`
     const existing = counts.get(key)
@@ -231,8 +233,8 @@ export function parsePodNames(stdout: string): string[] {
 }
 
 export class PodRunner {
-  private sshRunner: SshRunner
-  private timeoutMs: number
+  private readonly sshRunner: SshRunner
+  private readonly timeoutMs: number
 
   constructor(options?: {sshRunner?: SshRunner; timeoutMs?: number}) {
     this.sshRunner = options?.sshRunner ?? defaultSshRunner
@@ -240,7 +242,9 @@ export class PodRunner {
   }
 
   /** No-op; SSH calls are stateless. Provided for the `clearClients` contract. */
-  async closeAll(): Promise<void> {}
+  async closeAll(): Promise<void> {
+    // Nothing to tear down — each command is its own short-lived SSH process.
+  }
 
   /**
    * Discover the component/role label values on every running pod in the
@@ -366,7 +370,7 @@ export class PodRunner {
   /**
    * List running pods matching the connection's selector.
    *
-   * @throws if the SSH/kubectl invocation fails or returns no pods.
+   * @throws {Error} if the SSH/kubectl invocation fails or returns no pods.
    */
   async listPods(conn: ServerConnection): Promise<string[]> {
     const {exitCode, stderr, stdout} = await this.sshRunner(buildListPodsArgs(conn), this.timeoutMs)

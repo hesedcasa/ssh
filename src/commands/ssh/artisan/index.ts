@@ -4,7 +4,6 @@ import {Args, Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../../base-command.js'
 import {checkCommandBlacklist, closeConnections, getArtisanBlacklist, runArtisan} from '../../../k8s/index.js'
-import {ExecData} from '../../../k8s/pod-runner.js'
 
 export default class SshArtisan extends BaseCommand {
   static override args = {
@@ -13,6 +12,7 @@ export default class SshArtisan extends BaseCommand {
       required: true,
     }),
   }
+
   static override description = 'Run a Laravel artisan command'
   static override enableJsonFlag = true
   static override examples = [
@@ -20,6 +20,7 @@ export default class SshArtisan extends BaseCommand {
     '<%= config.bin %> <%= command.id %> route:list -p prod',
     '<%= config.bin %> <%= command.id %> queue:restart --namespace sa-testqa',
   ]
+
   static override flags = {
     all: Flags.boolean({default: false, description: 'Run on ALL running pods; output is labelled per pod'}),
     component: Flags.string({description: 'Override pod component label (default: from profile)'}),
@@ -45,7 +46,7 @@ export default class SshArtisan extends BaseCommand {
       namespace: flags.namespace,
       role: flags.role,
     }
-    const result = await this.withSpinner('Running artisan command', () =>
+    const result = await this.withSpinner('Running artisan command', async () =>
       runArtisan(this.config, args.command, flags.profile, overrides, flags.all),
     )
     await closeConnections()
@@ -53,7 +54,7 @@ export default class SshArtisan extends BaseCommand {
     if (result.success) {
       this.log(typeof result.data?.result === 'string' ? result.data.result : '')
 
-      delete (result.data as ExecData).result
+      delete result.data!.result
 
       return result
     }

@@ -37,7 +37,7 @@ export const SERVER_CONFIG_FILE = 'ssh-servers.json'
 let podRunner: null | PodRunner = null
 
 /** Flags that override profile values for a single invocation. */
-export interface ExecOverrides {
+export type ExecOverrides = {
   component?: string
   container?: string
   namespace?: string
@@ -45,9 +45,7 @@ export interface ExecOverrides {
 }
 
 function getRunner(): PodRunner {
-  if (!podRunner) {
-    podRunner = new PodRunner()
-  }
+  podRunner ??= new PodRunner()
 
   return podRunner
 }
@@ -89,10 +87,10 @@ async function initConfig(config: Config, profile?: string): Promise<ServerConne
 function applyOverrides(conn: ServerConnection, overrides: ExecOverrides): ServerConnection {
   return {
     ...conn,
-    ...(overrides.component ? {component: overrides.component} : {}),
-    ...(overrides.container ? {container: overrides.container} : {}),
-    ...(overrides.namespace ? {namespace: overrides.namespace} : {}),
-    ...(overrides.role ? {role: overrides.role} : {}),
+    ...(overrides.component && {component: overrides.component}),
+    ...(overrides.container && {container: overrides.container}),
+    ...(overrides.namespace && {namespace: overrides.namespace}),
+    ...(overrides.role && {role: overrides.role}),
   }
 }
 
@@ -272,10 +270,12 @@ export async function testServerConnection(profile: ServerProfile): Promise<Conn
 }
 
 export async function closeConnections(): Promise<void> {
-  if (podRunner) {
-    await podRunner.closeAll()
-    podRunner = null
+  if (!podRunner) {
+    return
   }
+
+  await podRunner.closeAll()
+  podRunner = null
 }
 
 export {

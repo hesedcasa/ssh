@@ -14,7 +14,7 @@
 /** Default `php artisan` invocation prefix; overridable per profile. */
 export const DEFAULT_ARTISAN_PREFIX = 'php artisan'
 
-export interface ServerProfile {
+export type ServerProfile = {
   /**
    * Command prefixes (e.g. `tail`, `php artisan cache:clear`) that `ssh exec`
    * is allowed to run against this profile. Empty/omitted means the allowlist
@@ -49,7 +49,7 @@ export interface ServerProfile {
   sshUser: string
 }
 
-export interface K8sConfig {
+export type K8sConfig = {
   defaultProfile: string
   profiles: Record<string, ServerProfile>
 }
@@ -60,7 +60,7 @@ export interface K8sConfig {
  * Returned by {@link getServerConnectionOptions} so the runner never has to
  * re-apply defaults itself.
  */
-export interface ServerConnection {
+export type ServerConnection = {
   /** Resolved exec allowlist for this profile; `[]` (allow everything) when none is configured. */
   allowedExecCommands: string[]
   artisanPrefix: string
@@ -83,7 +83,7 @@ export interface ServerConnection {
 /**
  * Resolve a named profile into fully-defaulted connection options.
  *
- * @throws if `profileName` is not present in `config.profiles` (mirrors the
+ * @throws {Error} if `profileName` is not present in `config.profiles` (mirrors the
  *   error behaviour of `getPgConnectionOptions`).
  */
 export function getServerConnectionOptions(config: K8sConfig, profileName: string): ServerConnection {
