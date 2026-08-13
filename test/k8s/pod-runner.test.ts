@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {expect} from 'chai'
+import {Buffer} from 'node:buffer'
 import {type SinonStub, stub} from 'sinon'
 
 import type {ServerConnection} from '../../src/k8s/config-loader.js'

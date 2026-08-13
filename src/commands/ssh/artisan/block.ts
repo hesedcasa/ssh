@@ -15,6 +15,7 @@ export default class SshArtisanBlock extends BaseCommand {
     '<%= config.bin %> <%= command.id %> -p prod --remove migrate:fresh',
     '<%= config.bin %> <%= command.id %> -p prod --clear',
   ]
+
   static override flags = {
     add: Flags.string({description: 'Add a command prefix to the blacklist (repeatable)', multiple: true}),
     clear: Flags.boolean({default: false, description: "Remove every entry from the profile's blacklist"}),

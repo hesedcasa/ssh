@@ -4,17 +4,18 @@ import {Flags} from '@oclif/core'
 
 import {BaseCommand} from '../../../base-command.js'
 import {closeConnections, discoverPodLabels} from '../../../k8s/index.js'
-import {DiscoverLabelsData} from '../../../k8s/pod-runner.js'
 
 export default class SshServersDiscover extends BaseCommand {
   static override description =
     "Discover the component/role label values on a namespace's running pods (valid --component/--role targets)"
+
   static override enableJsonFlag = true
   static override examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> -p prod',
     '<%= config.bin %> <%= command.id %> --namespace sa-testqa',
   ]
+
   static override flags = {
     namespace: Flags.string({description: 'Override Kubernetes namespace (default: from profile)'}),
     profile: Flags.string({char: 'p', description: 'SSH server profile name from config', required: false}),
@@ -23,7 +24,7 @@ export default class SshServersDiscover extends BaseCommand {
   public async run(): Promise<ApiResult> {
     const {flags} = await this.parse(SshServersDiscover)
 
-    const result = await this.withSpinner('Discovering pod labels', () =>
+    const result = await this.withSpinner('Discovering pod labels', async () =>
       discoverPodLabels(this.config, flags.profile, flags.namespace),
     )
     await closeConnections()
@@ -31,7 +32,7 @@ export default class SshServersDiscover extends BaseCommand {
     if (result.success) {
       this.log(typeof result.data?.result === 'string' ? result.data.result : '')
 
-      delete (result.data as DiscoverLabelsData).result
+      delete result.data!.result
 
       return result
     }

@@ -36,7 +36,7 @@
  * merge a pod's stderr into its stdout. See {@link FD_DUPLICATION}.
  */
 
-export interface SafetyCheckResult {
+export type SafetyCheckResult = {
   allowed: boolean
   /** The list entry that blocked the command (blacklist checks only). */
   blockedCommand?: string
@@ -86,6 +86,9 @@ function stripFdDuplications(command: string): string {
 function hasRedirection(command: string): boolean {
   return /[<>]/.test(command)
 }
+
+/** Single characters that terminate a command segment at the top level. */
+const SEGMENT_TERMINATORS = new Set(['\n', '\r', '&', ';', '|'])
 
 /**
  * Split a command on top-level `;`, `&&`, `||`, `&`, `|`, and newlines
@@ -138,7 +141,7 @@ function splitChainOperators(command: string): string[] {
       continue
     }
 
-    if (ch === ';' || ch === '|' || ch === '&' || ch === '\n' || ch === '\r') {
+    if (SEGMENT_TERMINATORS.has(ch)) {
       segments.push(current)
       current = ''
       i += 1
@@ -160,11 +163,7 @@ function splitChainOperators(command: string): string[] {
  * as everything else.
  */
 function extractSubstitutions(text: string): string[] {
-  const found: string[] = []
-
-  for (const match of text.matchAll(/`([^`]*)`/g)) {
-    found.push(match[1])
-  }
+  const found: string[] = Array.from(text.matchAll(/`([^`]*)`/g), (match) => match[1])
 
   let start = text.indexOf('$(')
   while (start !== -1) {
@@ -280,7 +279,7 @@ export function checkCommandAllowlist(command: string, allowed: string[], comman
 
   for (const segment of flattenCommands(analysed)) {
     const normalizedSegment = normalize(segment)
-    if (!entries.some((entry) => matchesEntry(normalizedSegment, entry))) {
+    if (entries.every((entry) => !matchesEntry(normalizedSegment, entry))) {
       return {
         allowed: false,
         reason: `The command "${segment}" is not in the profile's ${commandKind} allowlist.`,
@@ -317,7 +316,7 @@ export function applyListEdits(current: string[], add?: string[], remove?: strin
   if (add) {
     for (const raw of add) {
       const entry = raw.trim()
-      if (entry && !updated.some((existing) => existing.toLowerCase() === entry.toLowerCase())) {
+      if (entry && updated.every((existing) => existing.toLowerCase() !== entry.toLowerCase())) {
         updated.push(entry)
       }
     }

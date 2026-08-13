@@ -1,8 +1,6 @@
 import {expect} from 'chai'
 
-import type {K8sConfig} from '../../src/k8s/config-loader.js'
-
-import {DEFAULT_ARTISAN_PREFIX, getServerConnectionOptions} from '../../src/k8s/config-loader.js'
+import {DEFAULT_ARTISAN_PREFIX, getServerConnectionOptions, type K8sConfig} from '../../src/k8s/config-loader.js'
 
 describe('k8s/config-loader', () => {
   const mockConfig: K8sConfig = {
