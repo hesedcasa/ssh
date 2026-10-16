@@ -10,7 +10,7 @@
   "dependencies": {
     "@hesed/plugin-lib": "^0.10.1",
     "@inquirer/prompts": "^8.3.0",
-    "@oclif/core": "^4",
+    "@oclif/core": "^5",
     "fs-extra": "^11.3.3"
   },
   "devDependencies": {
