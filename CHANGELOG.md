@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/hesedcasa/ssh/compare/v0.6.2...v0.6.3) (2026-10-17)
+
+
+### 🛠️ Fixes
+
+* harden check reading and PR listing in Dependabot auto-merge ([4b6d4e5](https://github.com/hesedcasa/ssh/commit/4b6d4e558f4c4b6c0d52ae224efcd1bf93f3e6c4))
+
 ## [0.6.2](https://github.com/hesedcasa/ssh/compare/v0.6.1...v0.6.2) (2026-08-28)
 
 
