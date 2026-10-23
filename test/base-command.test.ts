@@ -1,9 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import {Command} from '@oclif/core'
+import {Command, Config} from '@oclif/core'
 import {expect} from 'chai'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import {type SinonStub, stub} from 'sinon'
 
 import {BaseCommand, preserveV4JsonExitCode} from '../src/base-command.js'
+import SshServersAdd from '../src/commands/ssh/servers/add.js'
+import SshServersDelete from '../src/commands/ssh/servers/delete.js'
+import SshServersList from '../src/commands/ssh/servers/list.js'
+import SshServersProfile from '../src/commands/ssh/servers/profile.js'
+import SshServersTest from '../src/commands/ssh/servers/test.js'
+import SshServersUpdate from '../src/commands/ssh/servers/update.js'
+import {SERVER_CONFIG_FILE} from '../src/k8s/index.js'
 
 /** The error shape oclif routes into `catch` (`@oclif/core` `CommandError`). */
 type CommandError = Error & {exitCode?: number; oclif?: {exit?: number}}
@@ -136,5 +146,134 @@ describe('preserveV4JsonExitCode', () => {
   it('patches the class in place, keeping oclif discovery intact', () => {
     expect(PatchedAuthProbe).to.equal(AuthStyleProbe)
     expect(AuthStyleProbe.enableJsonFlag).to.be.true
+  })
+
+  /**
+   * The six `ssh servers` commands, as their modules actually register them
+   * with oclif -- i.e. already wrapped by `preserveV4JsonExitCode`. Driving
+   * them through oclif's full `_run()` (`init` -> `parse` -> `run` -> `catch`)
+   * binds the wrapper to the real exports: dropping it from a command module
+   * flips the real `--json` failure exit code from 1 back to 2 and these tests
+   * fail with it, where the probe-based suite above alone would stay green.
+   */
+  describe('real ssh servers command exports (--json error exit code)', () => {
+    // Every field flag the add/update factories require outside a TTY. The
+    // failures under test happen after parse, so each argv must parse cleanly.
+    const fieldFlags = [
+      '--bastionHost',
+      'bastion.example.com',
+      '--component',
+      'api',
+      '--container',
+      'app',
+      '--namespace',
+      'sa-prod',
+      '--role',
+      'app',
+      '--sshHost',
+      'k8s-node.example.com',
+      '--sshUser',
+      'allen',
+    ]
+
+    let config: Config
+    let configDir: string
+    let originalExitCode: typeof process.exitCode
+
+    before(async () => {
+      // A real oclif Config (so `_run()`'s init/removeEnvVar/parse path runs as
+      // in the CLI); only `configDir` is pointed at the isolated store.
+      config = await Config.load(process.cwd())
+    })
+
+    beforeEach(async () => {
+      originalExitCode = process.exitCode
+      // Simulate a fresh CLI process: the fix-up must re-derive 1 from the
+      // error, not inherit a stale exit code from an earlier suite.
+      process.exitCode = undefined
+      configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ssh-servers-json-exit-'))
+      config.configDir = configDir
+    })
+
+    afterEach(async () => {
+      process.exitCode = originalExitCode
+      await fs.rm(configDir, {force: true, recursive: true})
+    })
+
+    // Each case fails naturally inside `run()` -- no stubs -- from the real
+    // (or missing) profile store, exactly as the equivalent CLI invocation.
+    const cases: Array<{
+      argv: string[]
+      cmdClass: typeof Command
+      message: string
+      store?: object
+      topic: string
+    }> = [
+      {
+        argv: ['-p', 'dup', ...fieldFlags],
+        cmdClass: SshServersAdd,
+        message: "Profile 'dup' already exists. Use 'ssh auth update' to modify it.",
+        store: {profiles: {dup: {sshHost: 'k8s-node.example.com'}}},
+        topic: 'add',
+      },
+      {
+        argv: ['-p', 'ghost'],
+        cmdClass: SshServersDelete,
+        message: "Profile 'ghost' does not exist.",
+        store: {profiles: {other: {sshHost: 'k8s-node.example.com'}}},
+        topic: 'delete',
+      },
+      {
+        argv: [],
+        cmdClass: SshServersList,
+        message: 'No authentication profiles found',
+        topic: 'list',
+      },
+      {
+        argv: ['--default', 'ghost'],
+        cmdClass: SshServersProfile,
+        message: 'Missing authentication config',
+        topic: 'profile',
+      },
+      {
+        argv: ['-p', 'ghost'],
+        cmdClass: SshServersTest,
+        message: "Missing authentication config. Run 'ssh auth add'.",
+        topic: 'test',
+      },
+      {
+        argv: ['-p', 'ghost', ...fieldFlags],
+        cmdClass: SshServersUpdate,
+        message: "Profile 'ghost' does not exist. Use 'ssh auth add' to create it.",
+        store: {profiles: {other: {sshHost: 'k8s-node.example.com'}}},
+        topic: 'update',
+      },
+    ]
+
+    const registerCase = ({argv, cmdClass, message, store, topic}: (typeof cases)[number]): void => {
+      it(`ssh servers ${topic} --json exits 1 with the auth error envelope`, async () => {
+        if (store) {
+          await fs.writeFile(path.join(configDir, SERVER_CONFIG_FILE), JSON.stringify(store))
+        }
+
+        // oclif types `Command` as abstract, so the factory-typed exports need
+        // a cast to instantiate here. `_run()` is the CLI path minus exit.
+        const cmd = new (cmdClass as any)(['--json', ...argv], config) as any
+        const logJson = stub() as unknown as SinonStub
+        cmd.logJson = logJson
+        await cmd._run()
+
+        // The v4 contract: exit 1 (not v5's `err.oclif.exit` of 2) ...
+        expect(process.exitCode).to.equal(1)
+        // ... with the envelope oclif printed: exactly AuthCommandBase's
+        // `toErrorJson` rendering, untouched by the fix-up.
+        expect(logJson.calledOnce).to.be.true
+        expect(logJson.firstCall.args[0]).to.deep.equal({error: message})
+      })
+    }
+
+    for (const testCase of cases) {
+      registerCase(testCase)
+    }
   })
 })
