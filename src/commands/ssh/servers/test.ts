@@ -1,5 +1,6 @@
 import {createAuthTestCommand, type FieldDef} from '@hesed/plugin-lib'
 
+import {preserveV4JsonExitCode} from '../../../base-command.js'
 import {closeConnections, SERVER_CONFIG_FILE, testServerConnection} from '../../../k8s/index.js'
 
 // Must match the field list in `add.ts` so `ssh servers test` prompts for the
@@ -19,10 +20,12 @@ const fields: FieldDef[] = [
   {description: 'Container name within the pod', name: 'container', type: 'string'},
 ]
 
-export default createAuthTestCommand({
-  clearClients: closeConnections,
-  configFile: SERVER_CONFIG_FILE,
-  fields,
-  serviceName: 'SSH Server',
-  testConnection: testServerConnection,
-})
+export default preserveV4JsonExitCode(
+  createAuthTestCommand({
+    clearClients: closeConnections,
+    configFile: SERVER_CONFIG_FILE,
+    fields,
+    serviceName: 'SSH Server',
+    testConnection: testServerConnection,
+  }),
+)
